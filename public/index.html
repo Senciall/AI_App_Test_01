@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAI</title>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Syntax Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <!-- KaTeX for Math Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension/lib/index.umd.js"></script>
+
+    <!-- Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>MyAI</h2>
+                <button id="new-chat-btn" class="new-chat-btn">
+                    <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round"
+                        stroke-linejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    New Chat
+                </button>
+            </div>
+
+            <div id="chat-sidebar-view" class="sidebar-view active">
+                <div class="model-selector-container">
+                    <label for="model-select">Thinking Model</label>
+                    <select id="model-select">
+                        <option value="">Loading models...</option>
+                    </select>
+                </div>
+
+                <div class="model-selector-container" id="vision-model-container">
+                    <label for="vision-model-select">Vision Model (for images)</label>
+                    <select id="vision-model-select">
+                        <option value="">None (disabled)</option>
+                    </select>
+                    <p id="vision-model-hint" class="vision-hint">Install a vision model (e.g. llava, moondream) in Settings to enable image analysis.</p>
+                </div>
+
+                <div class="history-container">
+                    <p class="history-title">History (Local)</p>
+                    <ul id="chat-history-list" class="chat-history-list">
+                        <!-- History items will be populated here -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- New Internal Sidebar View for Files -->
+            <div id="files-sidebar-view" class="sidebar-view">
+                <div class="explorer-header">
+                    <p class="history-title">Local Space</p>
+                    <button id="refresh-files-btn" class="icon-btn-tiny" title="Refresh Files">
+                        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" height="1em"
+                            width="1em" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                                d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15">
+                            </path>
+                        </svg>
+                    </button>
+                    <span id="files-path-label" style="display: none;"></span>
+                </div>
+                <div id="files-list" class="files-list">
+                    <div class="view-placeholder">Loading local files...</div>
+                </div>
+
+                <div class="sidebar-section-divider"></div>
+                <p class="history-title">Recent Files</p>
+                <ul id="recent-files-list" class="recent-files-list"></ul>
+
+                <div class="sidebar-section-divider"></div>
+                <div class="history-container">
+                    <p class="history-title">Files Chat History</p>
+                    <ul id="files-chat-history-list" class="chat-history-list"></ul>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">U</div>
+                    <span>Local User</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-content">
+            <!-- Top Navigation Tabs -->
+            <nav class="top-tabs">
+                <button class="tab-btn active" data-target="chat-view">Chat</button>
+                <button class="tab-btn" data-target="files-view">Files</button>
+                <button class="tab-btn" data-target="agent-view">Agent</button>
+                <button class="tab-btn" data-target="settings-view">Settings</button>
+            </nav>
+
+            <!-- Chat View (Active Default) -->
+            <div id="chat-view" class="view-section active">
+                <div id="chat-container" class="chat-container">
+                    <div class="empty-state" id="empty-state">
+                        <h1>MyAI</h1>
+                        <p>Powered by Ollama Local Models</p>
+                    </div>
+                </div>
+
+                <div class="input-container-wrapper">
+                    <form id="chat-form" class="input-container">
+                        <div id="attached-files-container-main" class="attached-files-container"></div>
+                        <textarea id="user-input" placeholder="Message MyAI — or paste/drop an image to solve..." rows="1"></textarea>
+                        <div class="input-actions">
+                            <input type="file" id="file-input-main" class="hidden-file-input" multiple>
+                            <button type="button" id="attach-btn-main" class="attach-btn" title="Attach files">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                                </svg>
+                            </button>
+                            <button type="submit" id="send-btn" disabled>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                    <div class="disclaimer">MyAI can make mistakes. Consider verifying important information.</div>
+                </div>
+            </div>
+
+            <!-- Files View -->
+            <div id="files-view" class="view-section">
+                <div class="files-chat-container">
+                    <div id="chat-container-files" class="chat-container">
+                        <div id="empty-state-files" class="empty-state">
+                            <div class="empty-state-icon">📁</div>
+                            <h2>File Explorer Chat</h2>
+                            <p>Ask MyAI anything about the files in this workspace.</p>
+                        </div>
+                    </div>
+
+                    <div class="input-container-wrapper">
+                        <form class="input-container chat-form-files">
+                            <div id="attached-files-container-files" class="attached-files-container"></div>
+                            <textarea id="user-input-files" class="user-input-files"
+                                placeholder="Ask about your files..." rows="1"></textarea>
+                            <div class="input-actions">
+                                <input type="file" id="file-input-files" class="hidden-file-input" multiple>
+                                <button type="button" id="attach-btn-files" class="attach-btn" title="Attach files">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                                    </svg>
+                                </button>
+                                <button type="submit" id="send-btn-files" class="send-btn-files" disabled>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </form>
+                        <div class="disclaimer">MyAI can make mistakes. Consider verifying important information.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent View -->
+            <div id="agent-view" class="view-section">
+                <div class="view-placeholder">
+                    <h2>Auto-Agent Workspace</h2>
+                    <p>Coming soon...</p>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="settings-view" class="view-section">
+                <div class="settings-container">
+                    <div class="settings-header">
+                        <h2>General Settings</h2>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3>Local Space Configuration</h3>
+                        <p class="settings-desc">Choose which folder the AI should be able to access.</p>
+                        <div class="settings-input-row">
+                            <input type="text" id="files-dir-input" placeholder="e.g. C:\Users\Documents\MyFiles">
+                            <button id="save-config-btn" class="action-btn">Save Path</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3>Install Custom Model</h3>
+                        <p class="settings-desc">Enter any model name from the Ollama library.</p>
+                        <div class="settings-input-row">
+                            <input type="text" id="install-model-input" placeholder="e.g. gemma2:2b">
+                            <button id="install-model-btn" class="action-btn">Install</button>
+                        </div>
+                        <div id="install-progress-container" class="install-progress-container" style="display: none;">
+                            <div class="progress-bar-bg">
+                                <div id="install-progress-bar" class="progress-bar-fill"></div>
+                            </div>
+                            <span id="install-status-text">Pulling...</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3>Model Library</h3>
+                        <p class="settings-desc">Browse and install popular models. Installed models are marked with a checkmark.</p>
+                        <div class="model-catalog-filters">
+                            <button class="catalog-filter active" data-filter="all">All</button>
+                            <button class="catalog-filter" data-filter="general">General</button>
+                            <button class="catalog-filter" data-filter="code">Code</button>
+                            <button class="catalog-filter" data-filter="vision">Vision</button>
+                            <button class="catalog-filter" data-filter="embedding">Embedding</button>
+                        </div>
+                        <div id="model-catalog" class="model-catalog"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

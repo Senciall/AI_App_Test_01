@@ -1,0 +1,8 @@
+node_modules/
+dist/
+Chats/
+files/
+*.log
+.env
+Thumbs.db
+.DS_Store
