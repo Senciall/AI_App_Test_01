@@ -10,6 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // Files Tab chat elements
     const chatContainerFiles = document.getElementById("chat-container-files");
     const emptyStateFiles = document.getElementById("empty-state-files");
+    const statusDisplay = document.getElementById("thought-display");
+    const statusDisplayFiles = document.getElementById("thought-display-files");
 
     let chatHistory = [];
     let filesChatHistory = [];
@@ -97,64 +99,105 @@ document.addEventListener("DOMContentLoaded", () => {
     const visionModelSelect = document.getElementById("vision-model-select");
     const visionModelContainer = document.getElementById("vision-model-container");
 
-    async function loadModels() {
-        try {
-            const response = await fetch('/api/tags');
-            const data = await response.json();
+    // Model picker elements (chat tab + files tab)
+    const modelPickerBtn = document.getElementById("model-picker-btn");
+    const modelPickerLabel = document.getElementById("model-picker-label");
+    const modelPickerDropdown = document.getElementById("model-picker-dropdown");
+    const modelPickerBtnFiles = document.getElementById("model-picker-btn-files");
+    const modelPickerLabelFiles = document.getElementById("model-picker-label-files");
+    const modelPickerDropdownFiles = document.getElementById("model-picker-dropdown-files");
 
-            modelSelect.innerHTML = '';
-            visionModelSelect.innerHTML = '<option value="">None (disabled)</option>';
+    function setActiveModel(name, save = true) {
+        modelSelect.value = name;
+        modelPickerLabel.textContent = name;
+        modelPickerDropdown.querySelectorAll("li").forEach(li => li.classList.toggle("active", li.dataset.value === name));
+        if (modelPickerLabelFiles) modelPickerLabelFiles.textContent = name;
+        if (modelPickerDropdownFiles) modelPickerDropdownFiles.querySelectorAll("li").forEach(li => li.classList.toggle("active", li.dataset.value === name));
+        if (save) fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: name }) }).catch(() => {});
+    }
 
-            if (data.models && data.models.length > 0) {
-                const visionModels = [];
-                const thinkingModels = [];
+    // Move both dropdowns to body so they escape overflow:hidden parents
+    document.body.appendChild(modelPickerDropdown);
+    if (modelPickerDropdownFiles) document.body.appendChild(modelPickerDropdownFiles);
 
-                data.models.forEach(model => {
-                    const isVision = VISION_MODEL_PATTERNS.some(p => model.name.toLowerCase().includes(p));
-                    if (isVision) {
-                        visionModels.push(model.name);
-                    } else {
-                        thinkingModels.push(model.name);
-                    }
-                });
-
-                if (thinkingModels.length > 0) {
-                    thinkingModels.forEach(name => {
-                        const option = document.createElement("option");
-                        option.value = name;
-                        option.textContent = name;
-                        modelSelect.appendChild(option);
-                    });
-                } else {
-                    modelSelect.innerHTML = '<option value="">No thinking models found</option>';
-                    const hint = document.createElement('p');
-                    hint.className = 'vision-hint';
-                    hint.textContent = 'You only have vision models installed. Install a thinking model (e.g. llama3.2, qwen2.5, gemma2) from Settings.';
-                    hint.style.color = '#f87171';
-                    const container = modelSelect.parentElement;
-                    if (!container.querySelector('.vision-hint:last-child')) container.appendChild(hint);
-                }
-
-                const visionHint = document.getElementById("vision-model-hint");
-                if (visionModels.length > 0) {
-                    visionModels.forEach(name => {
-                        const opt = document.createElement("option");
-                        opt.value = name;
-                        opt.textContent = name;
-                        visionModelSelect.appendChild(opt);
-                    });
-                    visionModelSelect.value = visionModels[0];
-                    if (visionHint) visionHint.style.display = 'none';
-                } else {
-                    if (visionHint) visionHint.style.display = 'block';
-                }
-            } else {
-                modelSelect.innerHTML = '<option value="">No models found</option>';
-            }
-        } catch (error) {
-            console.error("Error fetching models:", error);
-            modelSelect.innerHTML = '<option value="">Failed to connect to Ollama</option>';
+    modelPickerBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = modelPickerDropdown.classList.contains("open");
+        if (!isOpen) {
+            const rect = modelPickerBtn.getBoundingClientRect();
+            modelPickerDropdown.style.left = rect.left + "px";
+            modelPickerDropdown.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+            modelPickerDropdown.style.top = "";
+            modelPickerDropdown.style.transform = "";
         }
+        modelPickerDropdown.classList.toggle("open", !isOpen);
+        modelPickerBtn.classList.toggle("open", !isOpen);
+    });
+
+    function setupPickerButton(btn, dropdown) {
+        if (!btn || !dropdown) return;
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const isOpen = dropdown.classList.contains("open");
+            // Close all pickers first
+            [modelPickerDropdown, modelPickerDropdownFiles].forEach(d => d && d.classList.remove("open"));
+            [modelPickerBtn, modelPickerBtnFiles].forEach(b => b && b.classList.remove("open"));
+            if (!isOpen) {
+                const rect = btn.getBoundingClientRect();
+                dropdown.style.left = rect.left + "px";
+                dropdown.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+                dropdown.style.top = "";
+                dropdown.style.transform = "";
+                dropdown.classList.add("open");
+                btn.classList.add("open");
+            }
+        });
+        dropdown.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const li = e.target.closest("li");
+            if (!li) return;
+            setActiveModel(li.dataset.value);
+            dropdown.classList.remove("open");
+            btn.classList.remove("open");
+        });
+    }
+
+    setupPickerButton(modelPickerBtn, modelPickerDropdown);
+    setupPickerButton(modelPickerBtnFiles, modelPickerDropdownFiles);
+
+    document.addEventListener("click", () => {
+        [modelPickerDropdown, modelPickerDropdownFiles].forEach(d => d && d.classList.remove("open"));
+        [modelPickerBtn, modelPickerBtnFiles].forEach(b => b && b.classList.remove("open"));
+    });
+
+    async function loadModels() {
+        let models = [];
+        try {
+            const res = await fetch('/api/tags');
+            const data = await res.json();
+            models = (data.models || []).map(m => m.name);
+        } catch {}
+
+        if (models.length === 0) models = ["gemma3:latest"];
+
+        const optionsHtml = models.map(m => `<option value="${m}">${m}</option>`).join("");
+        const itemsHtml = models.map(m => `<li data-value="${m}">${m}</li>`).join("");
+        modelSelect.innerHTML = optionsHtml;
+        modelPickerDropdown.innerHTML = itemsHtml;
+        if (modelPickerDropdownFiles) modelPickerDropdownFiles.innerHTML = itemsHtml;
+
+        let defaultModel = models[0];
+        try {
+            const settingsRes = await fetch('/api/settings');
+            const settings = await settingsRes.json();
+            if (settings.model && models.includes(settings.model)) defaultModel = settings.model;
+        } catch {}
+        setActiveModel(defaultModel, false);
+
+        const visionHint = document.getElementById("vision-model-hint");
+        if (visionHint) visionHint.style.display = 'none';
+        const visionContainer = document.getElementById("vision-model-container");
+        if (visionContainer) visionContainer.style.display = 'none';
     }
 
     const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -185,15 +228,17 @@ document.addEventListener("DOMContentLoaded", () => {
         renderRecentFiles();
     }
 
-    function renderRecentFiles() {
+    function renderRecentFiles(filter = '') {
         const list = document.getElementById('recent-files-list');
         if (!list) return;
         list.innerHTML = '';
-        if (recentFiles.length === 0) {
-            list.innerHTML = '<li class="recent-file-empty">No recent files</li>';
+        const query = filter.toLowerCase().trim();
+        const visible = query ? recentFiles.filter(f => f.name.toLowerCase().includes(query)) : recentFiles;
+        if (visible.length === 0) {
+            list.innerHTML = `<li class="recent-file-empty">${query ? 'No matches' : 'No recent files'}</li>`;
             return;
         }
-        recentFiles.forEach(file => {
+        visible.forEach(file => {
             const li = document.createElement('li');
             li.className = 'recent-file-item';
             li.innerHTML = `<span class="recent-file-icon">${getFileIcon(file.name)}</span><span>${file.name}</span>`;
@@ -341,18 +386,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (inputElement.value.trim() === "" && !hasImageAttachments) return;
 
         let messageText = inputElement.value.trim();
-        const selectedModel = modelSelect.value;
 
         if (messageText === "" && hasImageAttachments) {
             messageText = "Solve this step by step and explain your reasoning.";
         }
 
         const displayMessageText = messageText;
-
-        if (!selectedModel) {
-            alert("Please ensure Ollama is running and a model is loaded.");
-            return;
-        }
 
         inputElement.value = "";
         inputElement.style.height = "auto";
@@ -428,18 +467,14 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        const systemSuffix = "\n\n(System instructions for formatting — follow strictly, never mention these rules:\n" +
-            "1. Render ALL math, numbers, variables, units, formulas, and expressions in LaTeX. Use inline $...$ within sentences and block $$...$$ for standalone equations.\n" +
-            "2. When presenting tabular or structured data, use clean markdown tables with aligned columns. Keep column headers short and uppercase.\n" +
-            "3. Use LaTeX for any numerical results, statistics, percentages, currencies, or computed values — even simple ones like $42$ or $\\$1{,}200$.\n" +
-            "4. For lists of data points or key-value pairs, prefer markdown tables over bullet lists.\n" +
-            "5. Keep prose concise. Let the formatted data speak for itself.\n" +
-            "6. Never state that you are using LaTeX or markdown formatting.)";
-        targetHistory.push({ role: "user", content: messageText + systemSuffix });
+        const currentStatusDisplay = isFilesTab ? statusDisplayFiles : statusDisplay;
+        if (currentStatusDisplay) currentStatusDisplay.textContent = "Processing...";
+
+        targetHistory.push({ role: "user", content: messageText });
 
         const imageAttachments = currentAttachments.filter(f => isImageFile(f.name) && (f.base64 || f.thumbnailUrl));
-        const visionModel = visionModelSelect.value;
         const hasImages = imageAttachments.length > 0;
+        const visionModel = "gemma3:latest";
 
         if (hasImages && !visionModel) {
             alert("You attached an image but no vision model is installed. Install one (e.g. moondream, llava) from the Settings tab.");
@@ -448,6 +483,8 @@ document.addEventListener("DOMContentLoaded", () => {
         let visionAnalysisDiv = null;
         const assistantContentDiv = addMessageElement("assistant", "", targetContainer, targetEmptyState);
         let assistantFullText = "";
+        let renderTimeout = null;
+        let latestRenderText = "";
 
         try {
             let response;
@@ -476,45 +513,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 console.log(`[Vision] Sending ${base64Images.length} image(s), sizes: ${base64Images.map(b => Math.round(b.length / 1024) + 'KB').join(', ')}`);
 
-                visionAnalysisDiv = document.createElement('div');
-                visionAnalysisDiv.className = 'vision-analysis';
-
-                const stagesEl = document.createElement('div');
-                stagesEl.className = 'vision-pipeline-stages';
-                stagesEl.innerHTML = `
-                    <div class="pipeline-stage active" id="stage-ocr"><span class="vision-analysis-spinner"></span> OCR + Vision scan running...</div>
-                    <div class="pipeline-stage" id="stage-router">Classifying content...</div>
-                    <div class="pipeline-stage" id="stage-thinking">Generating response...</div>
-                `;
-                visionAnalysisDiv.appendChild(stagesEl);
-
-                const detailsEl = document.createElement('details');
-                detailsEl.className = 'vision-analysis-box';
-                detailsEl.innerHTML = '<summary>Extracted Content</summary><div class="vision-analysis-content"></div>';
-                detailsEl.style.display = 'none';
-                visionAnalysisDiv.appendChild(detailsEl);
-
-                assistantContentDiv.parentElement.insertBefore(visionAnalysisDiv, assistantContentDiv);
+                if (currentStatusDisplay) {
+                    currentStatusDisplay.textContent = "Analyzing image...";
+                    currentStatusDisplay.style.opacity = "1";
+                }
                 targetContainer.scrollTop = targetContainer.scrollHeight;
 
                 response = await fetch('/api/chat/vision', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        visionModel: visionModel,
-                        thinkingModel: selectedModel,
                         messages: [...targetHistory],
-                        images: base64Images
+                        images: base64Images,
+                        model: modelSelect.value,
+                        chatId: isFilesTab ? currentFilesChatId : currentChatId
                     })
                 });
             } else {
-                response = await fetch('/api/chat', {
+                if (currentStatusDisplay) currentStatusDisplay.textContent = "Generating output...";
+                const endpoint = '/api/chat';
+                const images = []; // No images for non-vision chat
+                response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: selectedModel,
                         messages: [...targetHistory],
-                        stream: true
+                        images: hasImages ? images : undefined,
+                        stream: true,
+                        model: modelSelect.value,
+                        chatId: isFilesTab ? currentFilesChatId : currentChatId
                     })
                 });
             }
@@ -541,58 +568,40 @@ document.addEventListener("DOMContentLoaded", () => {
                         try {
                             const data = JSON.parse(line);
 
-                            if (data.vision_analysis !== undefined && visionAnalysisDiv) {
-                                const contentEl = visionAnalysisDiv.querySelector('.vision-analysis-content');
-                                contentEl.textContent = data.vision_analysis || '(No content extracted)';
-
-                                const detailsBox = visionAnalysisDiv.querySelector('.vision-analysis-box');
-                                detailsBox.style.display = '';
-
-                                const stageOcr = visionAnalysisDiv.querySelector('#stage-ocr');
-                                const stageRouter = visionAnalysisDiv.querySelector('#stage-router');
-                                const stageThinking = visionAnalysisDiv.querySelector('#stage-thinking');
-
-                                if (stageOcr) { stageOcr.classList.remove('active'); stageOcr.classList.add('done'); stageOcr.innerHTML = '&#10003; Content extracted'; }
-
-                                const classification = data.classification || '';
-                                if (classification) {
-                                    if (stageRouter) { stageRouter.classList.remove('active'); stageRouter.classList.add('done'); stageRouter.innerHTML = classification === 'schoolwork' ? '&#10003; Schoolwork detected — tutor mode' : '&#10003; General image — standard mode'; }
-                                    if (stageThinking) { stageThinking.classList.add('active'); stageThinking.innerHTML = '<span class="vision-analysis-spinner"></span> ' + (classification === 'schoolwork' ? 'Solving step by step...' : 'Generating response...'); }
+                            if (data.agent_metadata && currentStatusDisplay) {
+                                const { keywords } = data.agent_metadata;
+                                if (keywords && keywords.length > 0) {
+                                    currentStatusDisplay.textContent = `Searching: [${keywords.join(', ')}]...`;
+                                    currentStatusDisplay.style.opacity = "1";
                                 } else {
-                                    if (stageRouter) { stageRouter.classList.add('active'); stageRouter.innerHTML = '<span class="vision-analysis-spinner"></span> Classifying content...'; }
+                                    currentStatusDisplay.style.opacity = "0";
                                 }
-
-                                visionDone = true;
-                                targetContainer.scrollTop = targetContainer.scrollHeight;
-                                continue;
-                            }
-
-                            if (data.error) {
-                                assistantFullText += `\n\n**Vision Error:** ${data.error}`;
-                                assistantContentDiv.innerHTML = marked.parse(assistantFullText);
                                 continue;
                             }
 
                             if (data.done) {
-                                if (visionAnalysisDiv) {
-                                    const stageThinking = visionAnalysisDiv.querySelector('#stage-thinking');
-                                    if (stageThinking) { stageThinking.classList.remove('active'); stageThinking.classList.add('done'); stageThinking.innerHTML = '&#10003; Complete'; }
-                                }
                                 streamFinished = true;
                                 break;
                             }
 
                             if (data.message && data.message.content) {
                                 assistantFullText += data.message.content;
-                                let renderText = assistantFullText;
-                                renderText = renderText.replace(/\\\[/g, () => '$$').replace(/\\\]/g, () => '$$');
-                                renderText = renderText.replace(/\\\(/g, () => '$').replace(/\\\)/g, () => '$');
-                                renderText = renderText.replace(/([^\n=]{1,50}?)\s*=\s*\$\$([\s\S]*?)\$\$/g, (match, lhs, expr) => {
+                                latestRenderText = assistantFullText;
+                                latestRenderText = latestRenderText.replace(/\\\[/g, () => '$$').replace(/\\\]/g, () => '$$');
+                                latestRenderText = latestRenderText.replace(/\\\(/g, () => '$').replace(/\\\)/g, () => '$');
+                                latestRenderText = latestRenderText.replace(/([^\n=]{1,50}?)\s*=\s*\$\$([\s\S]*?)\$\$/g, (match, lhs, expr) => {
                                     return `$$ ${lhs.trim()} = ${expr.trim()} $$`;
                                 });
-                                assistantContentDiv.innerHTML = marked.parse(renderText);
-                                const isScrolledToBottom = targetContainer.scrollHeight - targetContainer.clientHeight <= targetContainer.scrollTop + 50;
-                                if (isScrolledToBottom) targetContainer.scrollTop = targetContainer.scrollHeight;
+                                
+                                // Throttled rendering
+                                if (!renderTimeout) {
+                                    renderTimeout = requestAnimationFrame(() => {
+                                        assistantContentDiv.innerHTML = marked.parse(latestRenderText);
+                                        const isScrolledToBottom = targetContainer.scrollHeight - targetContainer.clientHeight <= targetContainer.scrollTop + 100;
+                                        if (isScrolledToBottom) targetContainer.scrollTop = targetContainer.scrollHeight;
+                                        renderTimeout = null;
+                                    });
+                                }
                             }
                         } catch (e) {
                             console.warn('Failed to parse stream chunk:', line.substring(0, 200), e);
@@ -601,6 +610,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
             targetHistory.push({ role: "assistant", content: assistantFullText });
+            if (currentStatusDisplay) {
+                currentStatusDisplay.textContent = "";
+                currentStatusDisplay.style.opacity = "0";
+            }
+            // Final definitive render before setting up buttons
+            if (latestRenderText) {
+                let finalText = latestRenderText
+                    .replace(/\\\[/g, '$$').replace(/\\\]/g, '$$')
+                    .replace(/\\\(/g, '$').replace(/\\\)/g, '$');
+                assistantContentDiv.innerHTML = marked.parse(finalText);
+            }
             setupAskButtons(assistantContentDiv, targetContainer, targetHistory, targetEmptyState, isFilesTab);
 
             // Persist Chat History (We'll use currentChatId or currentFilesChatId)
@@ -611,6 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({
                     id: chatIdToUse,
                     history: targetHistory,
+                    isFilesChat: isFilesTab,
                     title: isFilesTab ? `Files Chat: ${messageText.substring(0, 15)}...` : messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '')
                 })
             }).then(res => res.json()).then(data => {
@@ -623,6 +644,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             console.error("Error generating response:", error);
             assistantContentDiv.innerHTML = `<span style="color: red;">Error: Could not obtain response from local Ollama endpoint.</span>`;
+            if (currentStatusDisplay) currentStatusDisplay.textContent = "";
         }
 
         isGenerating = false;
@@ -639,8 +661,8 @@ document.addEventListener("DOMContentLoaded", () => {
             chatHistoryList.innerHTML = '';
             if (filesChatHistoryList) filesChatHistoryList.innerHTML = '';
 
-            chats.reverse().forEach(chat => {
-                const isFilesChat = chat.title && chat.title.startsWith('Files Chat:');
+            chats.forEach(chat => {
+                const isFilesChat = !!chat.isFilesChat;
                 const li = document.createElement('li');
                 li.className = 'chat-history-item';
 
@@ -722,6 +744,99 @@ document.addEventListener("DOMContentLoaded", () => {
     // Helper to setup ask buttons (refactored out)
     function setupAskButtons(assistantContentDiv, targetContainer, targetHistory, targetEmptyState, isFilesTab) {
         setTimeout(() => {
+            // Add Explain button below each block-level formula
+            assistantContentDiv.querySelectorAll('.katex-display').forEach(block => {
+                // Find the direct child of assistantContentDiv that contains this formula
+                let insertAfter = block;
+                while (insertAfter.parentElement && insertAfter.parentElement !== assistantContentDiv) {
+                    insertAfter = insertAfter.parentElement;
+                }
+                if (insertAfter.nextElementSibling && insertAfter.nextElementSibling.classList.contains('math-explain-bar')) return;
+
+                const bar = document.createElement('div');
+                bar.className = 'math-explain-bar';
+                const explainBtn = document.createElement('button');
+                explainBtn.className = 'math-explain-btn';
+                explainBtn.textContent = 'Explain derivation';
+                bar.appendChild(explainBtn);
+                insertAfter.insertAdjacentElement('afterend', bar);
+
+                explainBtn.addEventListener('click', async () => {
+                    if (explainBtn.disabled) return;
+
+                    // Extract raw LaTeX from KaTeX annotation
+                    const annotation = block.querySelector('annotation[encoding="application/x-tex"]');
+                    const latex = annotation ? annotation.textContent.trim() : block.textContent.trim();
+
+                    // Remove any existing explanation
+                    const existing = bar.nextElementSibling;
+                    if (existing && existing.classList.contains('math-explanation-result')) existing.remove();
+
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'math-explanation-result';
+                    resultDiv.textContent = '...';
+                    bar.insertAdjacentElement('afterend', resultDiv);
+
+                    explainBtn.disabled = true;
+                    explainBtn.textContent = 'Explaining...';
+
+                    const prompt = `You are a math tutor. Explain step by step how to derive or work through the following formula. Use $$...$$ for all block math and $...$ for inline math throughout your explanation. Do not use plain text for any mathematical symbols or expressions — always use LaTeX. Show each derivation step on its own line as a block formula.\n\nFormula: $$${latex}$$`;
+
+                    try {
+                        const res = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, model: modelSelect.value })
+                        });
+
+                        if (!res.ok) throw new Error('API error');
+
+                        const reader = res.body.getReader();
+                        const decoder = new TextDecoder('utf-8');
+                        let fullText = '';
+                        let buf = '';
+                        let renderPending = false;
+
+                        const renderExplanation = () => {
+                            let text = fullText
+                                .replace(/\\\[/g, '$$').replace(/\\\]/g, '$$')
+                                .replace(/\\\(/g, '$').replace(/\\\)/g, '$');
+                            resultDiv.innerHTML = marked.parse(text);
+                            renderPending = false;
+                        };
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            buf += decoder.decode(value, { stream: true });
+                            const lines = buf.split('\n');
+                            buf = lines.pop();
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    const data = JSON.parse(line);
+                                    if (data.done) break;
+                                    if (data.message?.content) {
+                                        fullText += data.message.content;
+                                        if (!renderPending) {
+                                            renderPending = true;
+                                            requestAnimationFrame(renderExplanation);
+                                        }
+                                    }
+                                } catch {}
+                            }
+                        }
+
+                        renderExplanation();
+                        explainBtn.textContent = 'Explained';
+                    } catch {
+                        resultDiv.textContent = 'Could not load explanation.';
+                        explainBtn.disabled = false;
+                        explainBtn.textContent = 'Explain derivation';
+                    }
+                });
+            });
+
             const childBlocks = assistantContentDiv.querySelectorAll(':scope > p, :scope > pre, :scope > ul, :scope > ol, :scope > blockquote, :scope > .katex-display');
             childBlocks.forEach(block => {
                 if (block.querySelector('.context-ask-btn')) return;
@@ -1295,11 +1410,54 @@ document.addEventListener("DOMContentLoaded", () => {
         return response;
     };
 
+    async function renderInstalledModelsList() {
+        const container = document.getElementById('installed-models-list');
+        if (!container) return;
+        await fetchInstalledModels();
+        if (installedModelNames.length === 0) {
+            container.innerHTML = '<span class="settings-loading">No models installed.</span>';
+            return;
+        }
+        container.innerHTML = '';
+        installedModelNames.forEach(name => {
+            const row = document.createElement('div');
+            row.className = 'installed-model-row';
+            row.innerHTML = `
+                <span class="installed-model-name">${name}</span>
+                <button class="uninstall-btn" data-model="${name}">Uninstall</button>
+            `;
+            row.querySelector('.uninstall-btn').addEventListener('click', async (e) => {
+                const btn = e.currentTarget;
+                const modelName = btn.dataset.model;
+                if (!confirm(`Uninstall ${modelName}?`)) return;
+                btn.disabled = true;
+                btn.textContent = 'Removing...';
+                try {
+                    const res = await fetch('/api/delete', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: modelName })
+                    });
+                    if (!res.ok) throw new Error('Failed');
+                    row.remove();
+                    await loadModels();
+                    renderModelCatalog(document.querySelector('.catalog-filter.active')?.dataset.filter || 'all');
+                } catch {
+                    btn.disabled = false;
+                    btn.textContent = 'Uninstall';
+                    alert(`Failed to uninstall ${modelName}.`);
+                }
+            });
+            container.appendChild(row);
+        });
+    }
+
     // Refresh catalog when settings tab is opened
     const settingsTab = document.querySelector('.tab-btn[data-target="settings-view"]');
     if (settingsTab) {
         settingsTab.addEventListener('click', async () => {
             await fetchInstalledModels();
+            renderInstalledModelsList();
             renderModelCatalog(document.querySelector('.catalog-filter.active')?.dataset.filter || 'all');
         });
     }
@@ -1395,4 +1553,9 @@ document.addEventListener("DOMContentLoaded", () => {
     loadConfig();
     loadChatHistory();
     renderRecentFiles();
+
+    const recentFilesSearch = document.getElementById('recent-files-search');
+    if (recentFilesSearch) {
+        recentFilesSearch.addEventListener('input', () => renderRecentFiles(recentFilesSearch.value));
+    }
 });

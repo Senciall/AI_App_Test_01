@@ -8,8 +8,10 @@ const http = require('http');
 const { PDFParse } = require('pdf-parse');
 const XLSX = require('xlsx');
 const Tesseract = require('tesseract.js');
+const { spawn } = require('child_process');
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
+const PYTHON_AGENT_BASE = 'http://127.0.0.1:3001';
 
 function getBasePath() {
     try {
@@ -50,10 +52,16 @@ function startServer(port = 3000) {
         await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
     }
 
+    const STABILITY_OPTIONS = {
+        temperature: 0.1,
+        top_p: 0.9,
+        num_ctx: 4096
+    };
+
     function ollamaChat(model, messages, stream = false, { options, timeoutMs } = {}) {
         return new Promise((resolve, reject) => {
             const body = { model, messages, stream };
-            if (options) body.options = options;
+            body.options = { ...STABILITY_OPTIONS, ...options };
             const payload = JSON.stringify(body);
             const timeout = timeoutMs || 180000;
             const req = http.request(`${OLLAMA_BASE}/api/chat`, {
@@ -81,184 +89,137 @@ function startServer(port = 3000) {
         });
     }
 
-    function ollamaChatStream(model, messages, outRes) {
+    function ollamaChatStream(model, messages, outRes, suppressDone = false) {
         return new Promise((resolve, reject) => {
-            const payload = JSON.stringify({ model, messages, stream: true });
+            const payload = JSON.stringify({ 
+                model, 
+                messages, 
+                stream: true,
+                options: STABILITY_OPTIONS
+            });
             const req = http.request(`${OLLAMA_BASE}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
             }, (res) => {
-                let finished = false;
+                let buffer = '';
                 res.on('data', (chunk) => {
-                    if (finished) return;
-                    try {
-                        outRes.write(chunk);
-                        const text = chunk.toString();
-                        const lines = text.split('\n');
-                        for (const line of lines) {
-                            if (line.trim()) {
-                                try {
-                                    const parsed = JSON.parse(line);
-                                    if (parsed.done) {
-                                        finished = true;
-                                        return;
-                                    }
-                                } catch {}
+                    buffer += chunk.toString();
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep the last partial line
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const parsed = JSON.parse(line);
+                            if (parsed.done && suppressDone) {
+                                const { done, ...rest } = parsed;
+                                outRes.write(JSON.stringify(rest) + '\n');
+                            } else {
+                                outRes.write(line + '\n');
                             }
+                        } catch (e) {
+                            // If it's not JSON, just pass it through as is
+                            outRes.write(line + '\n');
                         }
-                    } catch {}
+                    }
                 });
-                res.on('end', resolve);
+                res.on('end', () => {
+                    if (buffer.trim()) outRes.write(buffer + '\n');
+                    resolve();
+                });
             });
             req.on('error', reject);
-            req.setTimeout(300000, () => { req.destroy(); reject(new Error('Thinking model timed out')); });
+            req.setTimeout(300000, () => { req.destroy(); reject(new Error('Model timed out')); });
             req.write(payload);
             req.end();
         });
     }
 
+    async function getThinContext(chatId, prompt) {
+        return new Promise((resolve) => {
+            const payload = JSON.stringify({ chat_id: chatId, prompt });
+            const req = http.request(`${PYTHON_AGENT_BASE}/api/thin_context`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+            }, (res) => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => {
+                    try { resolve(JSON.parse(data)); } catch { resolve({ forensic_history: [], semantic_context: '', schema: '' }); }
+                });
+            });
+            req.on('error', () => resolve({ forensic_history: [], semantic_context: '', schema: '' }));
+            req.setTimeout(2000, () => { req.destroy(); resolve({ forensic_history: [], semantic_context: '', schema: '' }); });
+            req.write(payload);
+            req.end();
+        });
+    }
+
+    function startPythonAgent() {
+        console.log('[System] Spawning Python SQL Agent...');
+        const py = spawn('py', [path.join(__dirname, 'sql_agent.py'), '3001']);
+        py.stdout.on('data', (data) => console.log(`[Python] ${data.toString().trim()}`));
+        py.stderr.on('data', (data) => console.error(`[Python Error] ${data.toString().trim()}`));
+        process.on('exit', () => py.kill());
+    }
+
     ensureChatsDir();
     ensureFilesDir();
+    startPythonAgent();
 
     const publicDir = path.join(__dirname, 'public');
     app.use(express.static(publicDir));
 
-    let tesseractWorker = null;
-    async function getOcrWorker() {
-        if (!tesseractWorker) {
-            tesseractWorker = await Tesseract.createWorker('eng');
-        }
-        return tesseractWorker;
-    }
-
     app.post('/api/chat/vision', express.json({ limit: '100mb' }), async (req, res) => {
-        const { visionModel, thinkingModel, messages, images } = req.body;
+        const { messages, images, model: requestedModel } = req.body;
+        const visionModel = requestedModel || "gemma3:latest";
 
-        if (!visionModel || !thinkingModel || !images || images.length === 0) {
-            return res.status(400).json({ error: 'Missing required fields: visionModel, thinkingModel, and images' });
+        if (!images || images.length === 0) {
+            return res.status(400).json({ error: 'Missing images' });
         }
-
-        const userMessage = [...messages].reverse().find(m => m.role === 'user');
-        const userQuestion = userMessage?.content?.replace(/\n\n\(System instructions[\s\S]*$/, '').trim() || '';
 
         try {
-            console.log(`[Pipeline] Start — vision=${visionModel}, thinking=${thinkingModel}, images=${images.length}`);
-
-            // ── Stage 1a: Tesseract OCR (fast, runs in parallel with 1b) ──
-            console.log('[Pipeline] Stage 1: OCR + Vision running in parallel...');
-
-            const ocrPromise = (async () => {
-                const allText = [];
-                const worker = await getOcrWorker();
-                for (let i = 0; i < images.length; i++) {
-                    const imgBuffer = Buffer.from(images[i], 'base64');
-                    const { data } = await worker.recognize(imgBuffer);
-                    if (data.text.trim()) allText.push(data.text.trim());
-                }
-                return allText.join('\n\n---\n\n');
-            })();
-
-            // ── Stage 1b: Vision model for diagrams/visuals (parallel) ──
-            const visionPromise = ollamaChat(visionModel, [{
-                role: 'user',
-                content: 'Briefly describe any diagrams, graphs, figures, charts, geometric shapes, or visual elements in this image. If the image is only text, reply with "TEXT_ONLY". Keep it concise.',
-                images
-            }], false).catch(err => {
-                console.log(`[Pipeline] Vision pass failed: ${err.message}`);
-                return { message: { content: '' } };
-            });
-
-            const [ocrText, visionResponse] = await Promise.all([ocrPromise, visionPromise]);
-            const visionDesc = (visionResponse.message?.content || '').trim();
-            const hasVisuals = visionDesc && !visionDesc.toUpperCase().includes('TEXT_ONLY');
-
-            let extractedContent = ocrText || '(No text could be extracted)';
-            if (hasVisuals) {
-                extractedContent += `\n\n--- Visual Elements ---\n${visionDesc}`;
-            }
-
-            const MAX_CHARS = 8000;
-            if (extractedContent.length > MAX_CHARS) {
-                extractedContent = extractedContent.substring(0, MAX_CHARS) + '\n[Truncated]';
-            }
-            console.log(`[Pipeline] Stage 1 complete — OCR: ${ocrText.length} chars, Visuals: ${hasVisuals ? visionDesc.length + ' chars' : 'none'}`);
-
-            // ── Stage 2: Router Agent — fast classification ──
-            console.log('[Pipeline] Stage 2: Router classifying...');
-            let isSchoolwork = true;
-            try {
-                const sample = extractedContent.substring(0, 500);
-                const routerResponse = await ollamaChat(thinkingModel, [{
-                    role: 'user',
-                    content: `Classify this content as SCHOOLWORK or GENERAL. Reply with one word only.\n\n"${sample}"`
-                }], false, { options: { num_predict: 10, temperature: 0 }, timeoutMs: 15000 });
-                const routerRaw = (routerResponse.message?.content || '').trim().toUpperCase();
-                isSchoolwork = !routerRaw.includes('GENERAL');
-                console.log(`[Pipeline] Stage 2 complete — ${isSchoolwork ? 'SCHOOLWORK' : 'GENERAL'} (raw: "${routerRaw.substring(0, 30)}")`);
-            } catch (routerErr) {
-                console.log(`[Pipeline] Stage 2 — router failed (${routerErr.message}), defaulting to SCHOOLWORK`);
-            }
-
-            // ── Stage 3: Thinking model — generate the response ──
-            console.log(`[Pipeline] Stage 3: Thinking model (${isSchoolwork ? 'tutor' : 'general'} mode)...`);
+            console.log(`[Vision] model=${visionModel}, images=${images.length}`);
 
             res.setHeader('Content-Type', 'application/x-ndjson');
             res.setHeader('Transfer-Encoding', 'chunked');
+            res.write(JSON.stringify({ agent_metadata: { keywords: [] } }) + '\n');
 
-            res.write(JSON.stringify({
-                vision_analysis: extractedContent,
-                classification: isSchoolwork ? 'schoolwork' : 'general'
-            }) + '\n');
+            const SYSTEM_PROMPT = {
+                role: 'system',
+                content: `You are a technical vision assistant. When the user provides an image, follow this structure exactly:
 
-            // Build a clean, unified context for the thinking model
-            const fileContextMsgs = messages.filter(m => m.role === 'system');
-            const conversationMsgs = messages.filter(m => m.role !== 'system');
+## Visual Analysis
+Describe every visible component, label, text, part number, brand, price, unit, or specification shown in the image. Miss nothing — read all text literally including small print.
 
-            let fileContextBlock = '';
-            if (fileContextMsgs.length > 0) {
-                fileContextBlock = '\n\n## ATTACHED FILES\n' + fileContextMsgs.map(m => m.content).join('\n');
-            }
+## Technical Summary
+Provide a structured breakdown using headers and bullet points:
+- **Component / Product name**
+- **Brand / Manufacturer**
+- **Part numbers or model identifiers**
+- **Key specifications** (dimensions, ratings, protocols, etc.)
+- **Price or units if visible**
+- **Notable details or observations**
 
-            let systemPrompt;
-            if (isSchoolwork) {
-                systemPrompt = `You are an expert tutor helping a student with their schoolwork.
+## Response
+Answer the user's specific question using the visual analysis above as your primary context.
 
-## IMAGE CONTENT (via OCR)
-${ocrText || '(No text detected)'}
-${hasVisuals ? `\n## VISUAL ELEMENTS (diagrams, graphs, figures)\n${visionDesc}` : ''}
-${fileContextBlock}
-${userQuestion ? `\n## STUDENT'S QUESTION\n${userQuestion}` : ''}
+For any mathematical expressions or formulas, use LaTeX: $...$ for inline and $$...$$ for block math. Do not mention LaTeX — just use it.`
+            };
 
-## YOUR INSTRUCTIONS
-1. Identify each problem — restate what is being asked in your own words.
-2. Show EVERY step — never skip. Write out each transformation, calculation, or logical move.
-3. Explain the "why" — for each step, briefly explain the rule, theorem, or reasoning behind it.
-4. Use LaTeX — render ALL math with inline $...$ or block $$...$$ notation.
-5. Box final answers: $$\\boxed{answer}$$
-6. For multiple problems, use clear headings (## Problem 1, ## Problem 2, etc.).
-7. Be thorough but clear — a student should be able to follow your work and learn from it.
-8. Do NOT mention OCR, image analysis, or extraction. Act as if you see the image directly.
-9. If the student asked a specific question, prioritize that over solving everything.`;
-            } else {
-                systemPrompt = `The user shared an image.
+            // Build messages: system + full history, attaching images only to the last user message
+            const fullMessages = [SYSTEM_PROMPT, ...messages.map((m, i, arr) => {
+                const isLastUser = m.role === 'user' && i === arr.map(x => x.role).lastIndexOf('user');
+                if (isLastUser) {
+                    return { ...m, images };
+                }
+                return m;
+            })];
 
-## IMAGE CONTENT
-${ocrText || '(No text detected)'}
-${hasVisuals ? `\n## VISUAL ELEMENTS\n${visionDesc}` : ''}
-${fileContextBlock}
-${userQuestion ? `\n## USER'S QUESTION\n${userQuestion}` : ''}
-
-Answer based on the content above. Be thorough and helpful. Do not mention OCR or image analysis.`;
-            }
-
-            await ollamaChatStream(thinkingModel, [
-                { role: 'system', content: systemPrompt },
-                ...conversationMsgs
-            ], res);
+            await ollamaChatStream(visionModel, fullMessages, res);
             res.end();
-            console.log('[Pipeline] Complete.');
         } catch (error) {
-            console.error('[Pipeline] Error:', error.message);
+            console.error('[Vision] Error:', error.message);
             if (!res.headersSent) {
                 res.status(500).json({ error: error.message });
             } else {
@@ -268,7 +229,35 @@ Answer based on the content above. Be thorough and helpful. Do not mention OCR o
         }
     });
 
-    app.use(['/api/chat', '/api/tags', '/api/pull'], createProxyMiddleware({
+    app.post('/api/chat', express.json(), async (req, res) => {
+        const { messages, stream, chatId, model: requestedModel } = req.body;
+        const model = requestedModel || "gemma3:latest";
+
+        try {
+            const targetModel = model;
+
+            const SYSTEM_PROMPT = `You are a helpful assistant. When your response includes any mathematical expressions, equations, formulas, or numeric calculations, always render them using LaTeX notation. Use $...$ for inline math and $$...$$ for block/display math. Never write raw math without LaTeX formatting. Do not mention or reference LaTeX — simply use it.`;
+
+            const hasSystem = messages.some(m => m.role === 'system');
+            const messagesWithSystem = hasSystem
+                ? messages.map(m => m.role === 'system' ? { ...m, content: m.content + '\n\n' + SYSTEM_PROMPT } : m)
+                : [{ role: 'system', content: SYSTEM_PROMPT }, ...messages];
+
+            if (stream) {
+                res.setHeader('Content-Type', 'application/x-ndjson');
+                res.write(JSON.stringify({ agent_metadata: { keywords: [] } }) + '\n');
+                await ollamaChatStream(targetModel, messagesWithSystem, res);
+                res.end();
+            } else {
+                const response = await ollamaChat(targetModel, messagesWithSystem);
+                res.json({ ...response, agent_metadata: { keywords: [] } });
+            }
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    app.use(['/api/tags', '/api/pull', '/api/delete'], createProxyMiddleware({
         target: OLLAMA_BASE,
         changeOrigin: true
     }));
@@ -330,52 +319,53 @@ Answer based on the content above. Be thorough and helpful. Do not mention OCR o
 
     app.get('/api/chats', async (req, res) => {
         try {
-            await ensureChatsDir();
             const files = await fs.readdir(CHATS_DIR);
-            const jsonFiles = files.filter(f => f.endsWith('.json'));
-
             const chats = [];
-            for (const file of jsonFiles) {
+            for (const file of files) {
+                if (!file.endsWith('.json')) continue;
                 try {
-                    const raw = await fs.readFile(path.join(CHATS_DIR, file), 'utf-8');
-                    const parsed = JSON.parse(raw);
-                    chats.push({ id: parsed.id, title: parsed.title });
-                } catch (e) { console.error("Error reading chat file:", file); }
+                    const content = await fs.readFile(path.join(CHATS_DIR, file), 'utf-8');
+                    const chat = JSON.parse(content);
+                    chats.push({ id: chat.id, title: chat.title, isFilesChat: !!chat.isFilesChat, updatedAt: chat.updatedAt || 0 });
+                } catch {}
             }
-
-            chats.sort((a, b) => b.id - a.id);
+            chats.sort((a, b) => b.updatedAt - a.updatedAt);
             res.json(chats);
-        } catch (error) {
-            res.status(500).json({ error: error.message });
-        }
+        } catch { res.json([]); }
     });
 
     app.get('/api/chats/:id', async (req, res) => {
         try {
-            const filePath = path.join(CHATS_DIR, `${req.params.id}.json`);
-            const content = await fs.readFile(filePath, 'utf-8');
+            const content = await fs.readFile(path.join(CHATS_DIR, `${req.params.id}.json`), 'utf-8');
             res.json(JSON.parse(content));
-        } catch (error) {
-            res.status(404).json({ error: 'Chat not found' });
-        }
+        } catch { res.status(404).json({ error: 'Not found' }); }
     });
 
-    app.post('/api/chats', async (req, res) => {
-        const { id, history, title } = req.body;
+    app.post('/api/chats', express.json(), async (req, res) => {
+        const { id, history, title, isFilesChat } = req.body;
+        const chatId = id || `chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const chat = { id: chatId, title: title || 'New Chat', history: history || [], isFilesChat: !!isFilesChat, updatedAt: Date.now() };
+        await fs.writeFile(path.join(CHATS_DIR, `${chatId}.json`), JSON.stringify(chat, null, 2));
+        res.json({ success: true, id: chatId });
+    });
+
+    app.delete('/api/chats/:id', async (req, res) => {
         try {
-            await ensureChatsDir();
-            const chatId = id || Date.now();
+            await fs.unlink(path.join(CHATS_DIR, `${req.params.id}.json`));
+            res.json({ success: true });
+        } catch { res.status(404).json({ error: 'Not found' }); }
+    });
 
-            const cleanHistory = (history || []).filter(m => m.role !== 'system');
-            const chatData = { id: chatId, title: title || 'New Chat', history: cleanHistory };
+    app.get('/api/settings', async (req, res) => {
+        const data = await loadData();
+        res.json(data.settings || {});
+    });
 
-            const filePath = path.join(CHATS_DIR, `${chatId}.json`);
-            await fs.writeFile(filePath, JSON.stringify(chatData, null, 2));
-
-            res.json({ success: true, id: chatId });
-        } catch (error) {
-            res.status(500).json({ success: false, error: error.message });
-        }
+    app.post('/api/settings', express.json(), async (req, res) => {
+        const data = await loadData();
+        data.settings = { ...(data.settings || {}), ...req.body };
+        await saveData(data);
+        res.json(data.settings);
     });
 
     app.get('/api/files', async (req, res) => {

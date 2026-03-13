@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
-const { ensureOllama, stopOllama } = require('./ollama-manager');
+const { ensureOllama, stopOllama, ensureModel } = require('./ollama-manager');
 const { startServer } = require('./server');
 
 const PORT = 3000;
@@ -92,6 +92,14 @@ async function bootstrap() {
         sendStatus('checking', 0);
 
         await ensureOllama((stage, progress) => {
+            sendStatus(stage, progress);
+        });
+
+        await ensureModel('gemma3:latest', (stage, progress) => {
+            sendStatus(stage, progress);
+        });
+
+        await ensureModel('exaone-deep:2.4b', (stage, progress) => {
             sendStatus(stage, progress);
         });
 

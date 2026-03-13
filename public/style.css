@@ -1,3 +1,31 @@
+/* Custom scrollbars — global */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 /* APPLE GLASS 'ON CRACK' AESTHETIC */
 :root {
     --bg-base: #0a0a0c;
@@ -418,14 +446,6 @@ body {
     scroll-behavior: smooth;
 }
 
-.chat-container::-webkit-scrollbar {
-    width: 6px;
-}
-
-.chat-container::-webkit-scrollbar-thumb {
-    background: var(--glass-border);
-    border-radius: 10px;
-}
 
 .empty-state {
     display: flex;
@@ -836,9 +856,121 @@ body {
 .input-actions {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     padding: 0.35rem 0.6rem 0.5rem;
     gap: 0.5rem;
+}
+
+/* Model Picker */
+.model-picker {
+    position: relative;
+    flex-shrink: 0;
+    margin-right: auto;
+}
+
+.model-picker-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 4px 10px 4px 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    max-width: 160px;
+    height: 28px;
+    font-family: inherit;
+}
+
+.model-picker-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.model-picker-btn.open {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+#model-picker-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 110px;
+}
+
+.model-picker-chevron {
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    opacity: 0.5;
+}
+
+.model-picker-btn.open .model-picker-chevron {
+    transform: rotate(180deg);
+    opacity: 1;
+}
+
+.model-picker-dropdown {
+    display: none;
+    position: fixed;
+    background: rgba(22, 22, 28, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    list-style: none;
+    padding: 5px;
+    min-width: 180px;
+    max-width: 240px;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    scrollbar-width: none;
+}
+
+.model-picker-dropdown::-webkit-scrollbar {
+    display: none;
+}
+
+.model-picker-dropdown.open {
+    display: block;
+    animation: pickerFadeIn 0.15s ease forwards;
+}
+
+@keyframes pickerFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.model-picker-dropdown li {
+    padding: 7px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.65);
+    transition: all 0.12s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model-picker-dropdown li:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+}
+
+.model-picker-dropdown li.active {
+    background: rgba(94, 106, 210, 0.2);
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 .hidden-file-input {
@@ -1258,6 +1390,63 @@ body {
     color: var(--text-secondary);
 }
 
+/* Installed Models List */
+.installed-models-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.settings-loading {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.installed-model-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    transition: background 0.15s;
+}
+
+.installed-model-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.installed-model-name {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.uninstall-btn {
+    background: rgba(255, 70, 70, 0.08);
+    border: 1px solid rgba(255, 70, 70, 0.2);
+    color: rgba(255, 100, 100, 0.8);
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+
+.uninstall-btn:hover:not(:disabled) {
+    background: rgba(255, 70, 70, 0.15);
+    border-color: rgba(255, 70, 70, 0.4);
+    color: #ff6464;
+}
+
+.uninstall-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 /* Model Catalog */
 .model-catalog-filters {
     display: flex;
@@ -1655,61 +1844,54 @@ body {
     font-size: 0.9rem;
 }
 
-/* Image thumbnails in chat messages */
+/* Image display in chat messages */
 .message-image-grid {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
     order: -1;
     width: 100%;
     padding-left: 52px;
-    margin-bottom: 0.5rem;
+    margin-bottom: 1rem;
 }
 
 .message-image-thumb {
     position: relative;
-    width: 120px;
-    height: 120px;
-    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    border-radius: 14px;
     overflow: hidden;
-    border: 1px solid var(--glass-border);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(0, 0, 0, 0.3);
-    flex-shrink: 0;
     cursor: pointer;
     transition: all 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 .message-image-thumb:hover {
-    border-color: var(--accent-color);
-    transform: scale(1.03);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.5);
+    transform: translateY(-1px);
 }
 
 .message-image-thumb img {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
+    max-height: 480px;
+    object-fit: contain;
     display: block;
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .message-image-name {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 4px 8px;
-    font-size: 0.65rem;
-    color: #fff;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    padding: 6px 12px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.45);
+    background: rgba(0, 0, 0, 0.3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.message-image-thumb:hover .message-image-name {
-    opacity: 1;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .message-image-thumb.image-load-failed {
@@ -1717,6 +1899,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    min-height: 80px;
     border: 1px dashed rgba(255, 255, 255, 0.2);
 }
 
@@ -1805,4 +1988,93 @@ body {
     font-size: 0.78rem;
     color: rgba(255, 255, 255, 0.25);
     font-style: italic;
+}
+
+.recent-files-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.recent-files-header .history-title {
+    margin-bottom: 0;
+}
+
+.recent-files-search {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.recent-files-search::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.recent-files-search:focus {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+/* Math Explain Bar */
+.math-explain-bar {
+    display: flex;
+    align-items: center;
+    margin: -0.5rem 0 1rem 0;
+}
+
+.math-explain-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+    letter-spacing: 0.01em;
+}
+
+.math-explain-btn:hover:not(:disabled) {
+    color: rgba(255, 255, 255, 0.75);
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.math-explain-btn:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+/* Explanation result inserted inline below formula */
+.math-explanation-result {
+    border-left: 2px solid rgba(94, 106, 210, 0.4);
+    background: rgba(94, 106, 210, 0.04);
+    border-radius: 0 10px 10px 0;
+    padding: 0.85rem 1rem 0.85rem 1rem;
+    margin: 0 0 1.25rem 0;
+    font-size: 0.92rem;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.8);
+    animation: fadeInDown 0.2s ease forwards;
+}
+
+.math-explanation-result p { margin-bottom: 0.75rem; }
+.math-explanation-result p:last-child { margin-bottom: 0; }
+.math-explanation-result .katex-display { margin: 0.6rem 0; }
+
+.thought-process {
+  color: rgba(150, 150, 150, 0.6);
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+  transition: opacity 0.3s ease;
+  height: 1.2rem;
+  text-align: center;
 }

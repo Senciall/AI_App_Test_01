@@ -168,6 +168,29 @@ async function ensureOllama(onStatus) {
     if (onStatus) onStatus('ready', 100);
 }
 
+async function ensureModel(modelName, onStatus) {
+    if (onStatus) onStatus('pulling', 0);
+    return new Promise((resolve, reject) => {
+        const ollamaExe = isOllamaInstalled() ? getOllamaPath() : 'ollama';
+        const pull = spawn(ollamaExe, ['pull', modelName]);
+
+        pull.stdout.on('data', (data) => {
+            const str = data.toString();
+            const match = str.match(/(\d+)%/);
+            if (match && onStatus) {
+                onStatus(`pulling ${modelName}`, parseInt(match[1], 10));
+            }
+        });
+
+        pull.on('close', (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`Failed to pull model ${modelName}`));
+        });
+
+        pull.on('error', reject);
+    });
+}
+
 module.exports = {
     isOllamaInstalled,
     isOllamaRunning,
@@ -176,4 +199,5 @@ module.exports = {
     waitForOllama,
     stopOllama,
     ensureOllama,
+    ensureModel,
 };

@@ -46,19 +46,19 @@
             </div>
 
             <div id="chat-sidebar-view" class="sidebar-view active">
-                <div class="model-selector-container">
+                <div class="model-selector-container" style="display: none;">
                     <label for="model-select">Thinking Model</label>
                     <select id="model-select">
-                        <option value="">Loading models...</option>
+                        <option value="gemma3:latest">gemma3:latest</option>
                     </select>
                 </div>
 
-                <div class="model-selector-container" id="vision-model-container">
+                <div class="model-selector-container" id="vision-model-container" style="display: none;">
                     <label for="vision-model-select">Vision Model (for images)</label>
                     <select id="vision-model-select">
-                        <option value="">None (disabled)</option>
+                        <option value="qwen3-vl:2b">qwen3-vl:2b</option>
                     </select>
-                    <p id="vision-model-hint" class="vision-hint">Install a vision model (e.g. llava, moondream) in Settings to enable image analysis.</p>
+                    <p id="vision-model-hint" class="vision-hint">Standardized Vision: Qwen 3 VL</p>
                 </div>
 
                 <div class="history-container">
@@ -88,7 +88,10 @@
                 </div>
 
                 <div class="sidebar-section-divider"></div>
-                <p class="history-title">Recent Files</p>
+                <div class="recent-files-header">
+                    <p class="history-title">Recent Files</p>
+                    <input type="text" id="recent-files-search" class="recent-files-search" placeholder="Search...">
+                </div>
                 <ul id="recent-files-list" class="recent-files-list"></ul>
 
                 <div class="sidebar-section-divider"></div>
@@ -130,6 +133,14 @@
                         <div id="attached-files-container-main" class="attached-files-container"></div>
                         <textarea id="user-input" placeholder="Message MyAI — or paste/drop an image to solve..." rows="1"></textarea>
                         <div class="input-actions">
+                            <div class="model-picker" id="model-picker">
+                                <button type="button" id="model-picker-btn" class="model-picker-btn">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+                                    <span id="model-picker-label">Loading...</span>
+                                    <svg class="model-picker-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                                </button>
+                                <ul id="model-picker-dropdown" class="model-picker-dropdown"></ul>
+                            </div>
                             <input type="file" id="file-input-main" class="hidden-file-input" multiple>
                             <button type="button" id="attach-btn-main" class="attach-btn" title="Attach files">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -143,7 +154,7 @@
                             </button>
                         </div>
                     </form>
-                    <div class="disclaimer">MyAI can make mistakes. Consider verifying important information.</div>
+                    <div id="thought-display" class="thought-process"></div>
                 </div>
             </div>
 
@@ -162,8 +173,16 @@
                         <form class="input-container chat-form-files">
                             <div id="attached-files-container-files" class="attached-files-container"></div>
                             <textarea id="user-input-files" class="user-input-files"
-                                placeholder="Ask about your files..." rows="1"></textarea>
+                                placeholder="Message MyAI — or paste/drop an image to solve..." rows="1"></textarea>
                             <div class="input-actions">
+                                <div class="model-picker" id="model-picker-files">
+                                    <button type="button" id="model-picker-btn-files" class="model-picker-btn">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+                                        <span id="model-picker-label-files">Loading...</span>
+                                        <svg class="model-picker-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                                    </button>
+                                    <ul id="model-picker-dropdown-files" class="model-picker-dropdown"></ul>
+                                </div>
                                 <input type="file" id="file-input-files" class="hidden-file-input" multiple>
                                 <button type="button" id="attach-btn-files" class="attach-btn" title="Attach files">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -177,7 +196,7 @@
                                 </button>
                             </div>
                         </form>
-                        <div class="disclaimer">MyAI can make mistakes. Consider verifying important information.</div>
+                        <div id="thought-display-files" class="thought-process"></div>
                     </div>
                 </div>
             </div>
@@ -218,6 +237,14 @@
                                 <div id="install-progress-bar" class="progress-bar-fill"></div>
                             </div>
                             <span id="install-status-text">Pulling...</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3>Installed Models</h3>
+                        <p class="settings-desc">Models currently installed on your machine.</p>
+                        <div id="installed-models-list" class="installed-models-list">
+                            <span class="settings-loading">Loading...</span>
                         </div>
                     </div>
 
