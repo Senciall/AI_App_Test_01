@@ -50,60 +50,55 @@
                 </button>
             </div>
 
-            <div id="chat-sidebar-view" class="sidebar-view active">
-                <div class="model-selector-container" style="display: none;">
-                    <label for="model-select">Thinking Model</label>
-                    <select id="model-select">
-                        <option value="gemma3:latest">gemma3:latest</option>
-                    </select>
-                </div>
+            <!-- Hidden model selects (used by JS) -->
+            <select id="model-select" style="display:none"><option value="gemma3:latest">gemma3:latest</option></select>
+            <select id="vision-model-select" style="display:none"><option value="qwen3-vl:2b">qwen3-vl:2b</option></select>
+            <div id="vision-model-container" style="display:none"></div>
 
-                <div class="model-selector-container" id="vision-model-container" style="display: none;">
-                    <label for="vision-model-select">Vision Model (for images)</label>
-                    <select id="vision-model-select">
-                        <option value="qwen3-vl:2b">qwen3-vl:2b</option>
-                    </select>
-                    <p id="vision-model-hint" class="vision-hint">Standardized Vision: Qwen 3 VL</p>
+            <!-- Chat History Section -->
+            <div class="sb-section">
+                <div class="sb-section-head">
+                    <span class="sb-section-title">Chats</span>
                 </div>
-
-                <div class="history-container">
-                    <p class="history-title">History (Local)</p>
-                    <ul id="chat-history-list" class="chat-history-list">
-                        <!-- History items will be populated here -->
-                    </ul>
-                </div>
+                <ul id="chat-history-list" class="chat-history-list"></ul>
             </div>
 
-            <!-- New Internal Sidebar View for Files -->
-            <div id="files-sidebar-view" class="sidebar-view">
-                <div class="explorer-header">
-                    <p class="history-title">Local Space</p>
+            <div class="sidebar-section-divider"></div>
+
+            <!-- Files Section -->
+            <div class="sb-section sb-files-section">
+                <div class="sb-section-head">
+                    <span class="sb-section-title">Files</span>
                     <button id="refresh-files-btn" class="icon-btn-tiny" title="Refresh Files">
-                        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" height="1em"
-                            width="1em" xmlns="http://www.w3.org/2000/svg">
-                            <path
-                                d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15">
-                            </path>
-                        </svg>
+                        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
                     </button>
-                    <span id="files-path-label" style="display: none;"></span>
-                </div>
-                <div id="files-list" class="files-list">
-                    <div class="view-placeholder">Loading local files...</div>
+                    <button id="sidebar-upload-toggle" class="sb-upload-toggle" title="Upload files">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Upload
+                    </button>
                 </div>
 
+                <!-- Collapsible upload drop zone -->
+                <div id="sidebar-upload-zone" class="sb-upload-zone" style="display:none">
+                    <div class="sb-drop-area" id="sb-drop-area">
+                        <div class="sb-drop-icon">📂</div>
+                        <div class="sb-drop-text">Drop files here</div>
+                        <label for="sidebar-file-input" class="sb-browse-btn">Browse</label>
+                        <input type="file" id="sidebar-file-input" multiple hidden>
+                    </div>
+                </div>
+
+                <!-- File explorer tree -->
+                <div id="files-list" class="files-list"></div>
+
                 <div class="sidebar-section-divider"></div>
+
+                <!-- Recent files -->
                 <div class="recent-files-header">
-                    <p class="history-title">Recent Files</p>
+                    <p class="history-title">Recent</p>
                     <input type="text" id="recent-files-search" class="recent-files-search" placeholder="Search...">
                 </div>
                 <ul id="recent-files-list" class="recent-files-list"></ul>
-
-                <div class="sidebar-section-divider"></div>
-                <div class="history-container">
-                    <p class="history-title">Files Chat History</p>
-                    <ul id="files-chat-history-list" class="chat-history-list"></ul>
-                </div>
             </div>
 
             <div class="sidebar-footer">
@@ -119,7 +114,6 @@
             <!-- Top Navigation Tabs -->
             <nav class="top-tabs">
                 <button class="tab-btn active" data-target="chat-view">Chat</button>
-                <button class="tab-btn" data-target="files-view">Files</button>
                 <button class="tab-btn" data-target="agent-view">Agent</button>
                 <button class="tab-btn" data-target="settings-view">Settings</button>
             </nav>
@@ -163,48 +157,6 @@
                 </div>
             </div>
 
-            <!-- Files View -->
-            <div id="files-view" class="view-section">
-                <div class="files-chat-container">
-                    <div id="chat-container-files" class="chat-container">
-                        <div id="empty-state-files" class="empty-state">
-                            <div class="empty-state-icon">📁</div>
-                            <h2>File Explorer Chat</h2>
-                            <p>Ask MyAI anything about the files in this workspace.</p>
-                        </div>
-                    </div>
-
-                    <div class="input-container-wrapper">
-                        <form class="input-container chat-form-files">
-                            <div id="attached-files-container-files" class="attached-files-container"></div>
-                            <textarea id="user-input-files" class="user-input-files"
-                                placeholder="Message MyAI — or paste/drop an image to solve..." rows="1"></textarea>
-                            <div class="input-actions">
-                                <div class="model-picker" id="model-picker-files">
-                                    <button type="button" id="model-picker-btn-files" class="model-picker-btn">
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
-                                        <span id="model-picker-label-files">Loading...</span>
-                                        <svg class="model-picker-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                                    </button>
-                                    <ul id="model-picker-dropdown-files" class="model-picker-dropdown"></ul>
-                                </div>
-                                <input type="file" id="file-input-files" class="hidden-file-input" multiple>
-                                <button type="button" id="attach-btn-files" class="attach-btn" title="Attach files">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-                                    </svg>
-                                </button>
-                                <button type="submit" id="send-btn-files" class="send-btn-files" disabled>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M5 12h14M12 5l7 7-7 7"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </form>
-                        <div id="thought-display-files" class="thought-process"></div>
-                    </div>
-                </div>
-            </div>
 
             <!-- Agent View -->
             <div id="agent-view" class="view-section">

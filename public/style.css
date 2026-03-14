@@ -133,11 +133,10 @@ body {
     -webkit-backdrop-filter: var(--blur-intensity);
     display: flex;
     flex-direction: column;
-    padding: 1rem;
+    padding: 0;
     border-right: 1px solid var(--glass-border);
     transition: all 0.3s ease;
     overflow: hidden;
-    /* Prevent internal scrolls from leaking */
 }
 
 .sidebar-view {
@@ -303,11 +302,7 @@ body {
 }
 
 
-.sidebar-footer {
-    margin-top: auto;
-    padding-top: 1rem;
-    border-top: 1px solid var(--glass-border);
-}
+/* sidebar-footer styles moved to sb-section block below */
 
 .user-profile {
     display: flex;
@@ -2077,4 +2072,120 @@ body {
   transition: opacity 0.3s ease;
   height: 1.2rem;
   text-align: center;
+}
+
+/* ── Merged sidebar sections ── */
+/* Sidebar now uses direct flex children — no sidebar-view wrappers */
+.sidebar-header {
+    padding: 1rem 1rem 0.5rem;
+    flex-shrink: 0;
+}
+
+.sb-section {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+    flex-shrink: 0;
+}
+
+.sb-files-section {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    flex-shrink: 1;
+}
+
+.sidebar-footer {
+    flex-shrink: 0;
+    margin-top: auto;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--glass-border);
+}
+
+.sidebar-section-divider {
+    height: 1px;
+    background: var(--glass-border, rgba(255,255,255,0.06));
+    margin: 4px 0;
+    flex-shrink: 0;
+}
+
+.sb-section-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px 6px;
+}
+
+.sb-section-title {
+    flex: 1;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: rgba(255,255,255,0.28);
+}
+
+.sb-upload-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.4);
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.sb-upload-toggle:hover,
+.sb-upload-toggle.active {
+    background: rgba(94,106,210,0.18);
+    border-color: rgba(94,106,210,0.35);
+    color: rgba(160,170,255,0.9);
+}
+
+/* Upload drop zone in sidebar */
+.sb-upload-zone {
+    padding: 6px 10px 10px;
+}
+
+.sb-drop-area {
+    border: 1.5px dashed rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 14px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.02);
+    transition: all 0.15s;
+    cursor: default;
+}
+.sb-drop-area.drag-over {
+    border-color: rgba(94,106,210,0.5);
+    background: rgba(94,106,210,0.07);
+}
+
+.sb-drop-icon { font-size: 1.4rem; opacity: 0.5; }
+
+.sb-drop-text {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.35);
+}
+
+.sb-browse-btn {
+    padding: 4px 14px;
+    border-radius: 7px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.55);
+    font-size: 0.73rem;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.sb-browse-btn:hover {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
 }

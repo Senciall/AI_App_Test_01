@@ -7,11 +7,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const emptyState = document.getElementById("empty-state");
     const newChatBtn = document.getElementById("new-chat-btn");
 
-    // Files Tab chat elements
+    // Files Tab chat elements (elements removed; keep as null-safe refs)
     const chatContainerFiles = document.getElementById("chat-container-files");
     const emptyStateFiles = document.getElementById("empty-state-files");
     const statusDisplay = document.getElementById("thought-display");
-    const statusDisplayFiles = document.getElementById("thought-display-files");
+    const statusDisplayFiles = null;
 
     let chatHistory = [];
     let filesChatHistory = [];
@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentFilesChatId = null;
     let isGenerating = false;
     let mainAttachedFiles = []; // For the 'Chat' tab
-    let filesAttachedFiles = []; // For the 'Files' tab
+    let filesAttachedFiles = mainAttachedFiles; // Alias — Files tab removed, always use main
 
     // Configure marked properties for highlight.js
     const renderer = new marked.Renderer();
@@ -119,20 +119,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // Move both dropdowns to body so they escape overflow:hidden parents
     document.body.appendChild(modelPickerDropdown);
     if (modelPickerDropdownFiles) document.body.appendChild(modelPickerDropdownFiles);
-
-    modelPickerBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const isOpen = modelPickerDropdown.classList.contains("open");
-        if (!isOpen) {
-            const rect = modelPickerBtn.getBoundingClientRect();
-            modelPickerDropdown.style.left = rect.left + "px";
-            modelPickerDropdown.style.bottom = (window.innerHeight - rect.top + 8) + "px";
-            modelPickerDropdown.style.top = "";
-            modelPickerDropdown.style.transform = "";
-        }
-        modelPickerDropdown.classList.toggle("open", !isOpen);
-        modelPickerBtn.classList.toggle("open", !isOpen);
-    });
 
     function setupPickerButton(btn, dropdown) {
         if (!btn || !dropdown) return;
@@ -252,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const res = await fetch(`/api/files/read?path=${encodeURIComponent(file.path)}`);
                     const data = await res.json();
                     if (data.content) {
-                        const isFilesActive = document.getElementById('files-view').classList.contains('active');
+                        const isFilesActive = false;
                         attachFile(file.name, file.path, data.content, isFilesActive);
                     }
                 } catch (e) { console.error("Error attaching recent file:", e); }
@@ -274,27 +260,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function resetFilesChat() {
+        // Files tab removed; this is dead code — kept for safety
         filesChatHistory = [];
         currentFilesChatId = null;
-        chatContainerFiles.innerHTML = '';
-        chatContainerFiles.appendChild(emptyStateFiles);
-        emptyStateFiles.style.display = "flex";
+        if (chatContainerFiles && emptyStateFiles) {
+            chatContainerFiles.innerHTML = '';
+            chatContainerFiles.appendChild(emptyStateFiles);
+            emptyStateFiles.style.display = "flex";
+        }
         isGenerating = false;
-        const filesInput = document.getElementById("user-input-files");
-        const filesBtn = document.getElementById("send-btn-files");
-        if (filesInput) { filesInput.value = ""; filesInput.style.height = "auto"; }
-        if (filesBtn) filesBtn.disabled = true;
-        filesAttachedFiles = [];
-        renderAttachedFiles(true);
+        mainAttachedFiles = [];
+        renderAttachedFiles(false);
     }
 
     newChatBtn.addEventListener("click", () => {
-        const isFilesActive = document.getElementById('files-view').classList.contains('active');
-        if (isFilesActive) {
-            resetFilesChat();
-        } else {
-            resetChat();
-        }
+        resetChat();
     });
 
     function addMessageElement(role, initialContent = "", targetContainer, targetEmptyState, attachedFiles = []) {
@@ -453,11 +433,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const messageAttachments = currentAttachments.map(f => ({ name: f.name, path: f.path, thumbnailUrl: f.thumbnailUrl || null, base64: f.base64 || null }));
         addMessageElement("user", displayMessageText, targetContainer, targetEmptyState, messageAttachments);
 
-        if (isFilesTab) {
-            filesAttachedFiles = [];
-        } else {
-            mainAttachedFiles = [];
-        }
+        mainAttachedFiles = [];
+        filesAttachedFiles = mainAttachedFiles; // keep alias in sync
         renderAttachedFiles(isFilesTab);
 
         if (searchContext) {
@@ -677,31 +654,19 @@ document.addEventListener("DOMContentLoaded", () => {
                     try {
                         const fullRes = await fetch(`/api/chats/${chat.id}`);
                         const fullChat = await fullRes.json();
-                        if (isFilesChat) {
-                            filesChatHistory = fullChat.history || [];
-                            currentFilesChatId = fullChat.id;
-                            renderFilesChatHistory();
-                            const filesTab = document.querySelector('.tab-btn[data-target="files-view"]');
-                            if (filesTab) filesTab.click();
-                        } else {
-                            chatHistory = fullChat.history || [];
-                            currentChatId = fullChat.id;
-                            renderChatHistory();
-                            const chatTab = document.querySelector('.tab-btn[data-target="chat-view"]');
-                            if (chatTab && !document.getElementById('chat-view').classList.contains('active')) {
-                                chatTab.click();
-                            }
+                        chatHistory = fullChat.history || [];
+                        currentChatId = fullChat.id;
+                        renderChatHistory();
+                        const chatTab = document.querySelector('.tab-btn[data-target="chat-view"]');
+                        if (chatTab && !document.getElementById('chat-view').classList.contains('active')) {
+                            chatTab.click();
                         }
                     } catch (err) {
                         console.error("Error loading chat:", err);
                     }
                 });
 
-                if (isFilesChat && filesChatHistoryList) {
-                    filesChatHistoryList.appendChild(li);
-                } else {
-                    chatHistoryList.appendChild(li);
-                }
+                chatHistoryList.appendChild(li);
             });
         } catch (e) { console.error("History error:", e); }
     }
@@ -722,24 +687,6 @@ document.addEventListener("DOMContentLoaded", () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
-    function renderFilesChatHistory() {
-        chatContainerFiles.innerHTML = '';
-        if (filesChatHistory.length > 0) emptyStateFiles.style.display = 'none';
-        else {
-            chatContainerFiles.appendChild(emptyStateFiles);
-            emptyStateFiles.style.display = 'flex';
-        }
-
-        filesChatHistory.forEach(msg => {
-            if (msg.role === 'system') return;
-            let displayContent = msg.content;
-            if (msg.role === 'user') {
-                displayContent = displayContent.replace(/\n\n\(System: Always output math expressions.*?\)$/s, '');
-            }
-            addMessageElement(msg.role, displayContent, chatContainerFiles, emptyStateFiles);
-        });
-        chatContainerFiles.scrollTop = chatContainerFiles.scrollHeight;
-    }
 
     // Helper to setup ask buttons (refactored out)
     function setupAskButtons(assistantContentDiv, targetContainer, targetHistory, targetEmptyState, isFilesTab) {
@@ -885,9 +832,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         let combinedMessage = `**Regarding context:**\n${quotedContext}\n\n${val}`;
                         inputContainer.remove();
 
-                        // Use the appropriate input and button based on the tab
-                        const targetInput = isFilesTab ? document.getElementById("user-input-files") : userInput;
-                        const targetBtn = isFilesTab ? document.getElementById("send-btn-files") : sendBtn;
+                        // Always use the main chat input (Files tab removed)
+                        const targetInput = userInput;
+                        const targetBtn = sendBtn;
 
                         targetInput.value = combinedMessage;
                         handleChatSubmit(targetInput, targetBtn, targetHistory, targetContainer, targetEmptyState, isFilesTab);
@@ -903,47 +850,51 @@ document.addEventListener("DOMContentLoaded", () => {
         handleChatSubmit(userInput, sendBtn, chatHistory, chatContainer, emptyState, false);
     });
 
-    // Files Chat Form
-    const filesChatForm = document.querySelector(".chat-form-files");
-    const filesUserInput = document.getElementById("user-input-files");
-    const filesSendBtn = document.getElementById("send-btn-files");
-
-    if (filesChatForm) {
-        filesChatForm.addEventListener("submit", (e) => {
-            e.preventDefault();
-            handleChatSubmit(filesUserInput, filesSendBtn, filesChatHistory, chatContainerFiles, emptyStateFiles, true);
-        });
-
-        filesUserInput.addEventListener("input", function () {
-            this.style.height = "auto";
-            this.style.height = (this.scrollHeight) + "px";
-            updateSendButtonState(this, filesSendBtn, true);
-        });
-
-        filesUserInput.addEventListener("keydown", function (e) {
-            if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (!filesSendBtn.disabled) filesChatForm.dispatchEvent(new Event("submit"));
-            }
-        });
-
-        filesUserInput.addEventListener("paste", (e) => handlePasteImages(e, true));
-
-        const attachBtnFiles = document.getElementById("attach-btn-files");
-        const fileInputFiles = document.getElementById("file-input-files");
-        attachBtnFiles.addEventListener("click", () => fileInputFiles.click());
-        fileInputFiles.addEventListener("change", () => {
-            if (fileInputFiles.files.length > 0) {
-                handleFileUpload(fileInputFiles.files, true);
-                fileInputFiles.value = "";
-            }
-        });
-    }
+    // Files Chat Form — removed (Files tab merged into Chat sidebar)
 
     // Files Explorer Logic
     const filesList = document.getElementById("files-list");
     const refreshFilesBtn = document.getElementById("refresh-files-btn");
     refreshFilesBtn.addEventListener('click', () => loadFiles());
+
+    // Sidebar upload zone toggle
+    const sidebarUploadToggle = document.getElementById('sidebar-upload-toggle');
+    const sidebarUploadZone = document.getElementById('sidebar-upload-zone');
+    const sbDropArea = document.getElementById('sb-drop-area');
+    const sidebarFileInput = document.getElementById('sidebar-file-input');
+
+    if (sidebarUploadToggle && sidebarUploadZone) {
+        sidebarUploadToggle.addEventListener('click', () => {
+            const isOpen = sidebarUploadZone.style.display !== 'none';
+            sidebarUploadZone.style.display = isOpen ? 'none' : 'block';
+            sidebarUploadToggle.classList.toggle('active', !isOpen);
+        });
+    }
+
+    if (sidebarFileInput) {
+        sidebarFileInput.addEventListener('change', () => {
+            if (sidebarFileInput.files.length > 0) {
+                handleFileUpload(sidebarFileInput.files, false);
+                sidebarFileInput.value = '';
+                if (sidebarUploadZone) sidebarUploadZone.style.display = 'none';
+                if (sidebarUploadToggle) sidebarUploadToggle.classList.remove('active');
+            }
+        });
+    }
+
+    if (sbDropArea) {
+        sbDropArea.addEventListener('dragover', e => { e.preventDefault(); sbDropArea.classList.add('drag-over'); });
+        sbDropArea.addEventListener('dragleave', () => sbDropArea.classList.remove('drag-over'));
+        sbDropArea.addEventListener('drop', e => {
+            e.preventDefault();
+            sbDropArea.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileUpload(e.dataTransfer.files, false);
+                sidebarUploadZone.style.display = 'none';
+                sidebarUploadToggle.classList.remove('active');
+            }
+        });
+    }
 
     async function loadFiles() {
         try {
@@ -1009,7 +960,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const response = await fetch(`/api/files/read?path=${encodeURIComponent(file.path)}`);
                     const data = await response.json();
                     if (data.content) {
-                        const isFilesActive = document.getElementById('files-view').classList.contains('active');
+                        const isFilesActive = false;
                         attachFile(file.name, file.path, data.content, isFilesActive);
                     }
                 };
@@ -1061,11 +1012,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function removeAttachedFile(path, isFilesTab) {
-        if (isFilesTab) {
-            filesAttachedFiles = filesAttachedFiles.filter(f => f.path !== path);
-        } else {
-            mainAttachedFiles = mainAttachedFiles.filter(f => f.path !== path);
-        }
+        mainAttachedFiles = mainAttachedFiles.filter(f => f.path !== path);
+        filesAttachedFiles = mainAttachedFiles; // keep alias in sync
         renderAttachedFiles(isFilesTab);
     }
 
@@ -1098,13 +1046,7 @@ document.addEventListener("DOMContentLoaded", () => {
             container.appendChild(chip);
         });
 
-        if (isFilesTab) {
-            const filesInput = document.getElementById("user-input-files");
-            const filesBtn = document.getElementById("send-btn-files");
-            if (filesInput && filesBtn) updateSendButtonState(filesInput, filesBtn, true);
-        } else {
-            updateSendButtonState(userInput, sendBtn, false);
-        }
+        updateSendButtonState(userInput, sendBtn, false);
     }
 
     function setupDragAndDrop(formSelector, isFilesTab, extraDropZoneSelector) {
@@ -1180,9 +1122,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
                 const result = await response.json();
                 if (result.success) {
-                    if (document.getElementById('files-view').classList.contains('active')) {
-                        loadFiles();
-                    }
+                    loadFiles();
 
                     if (isImageFile(result.name)) {
                         const thumbUrl = dataUrl || getImageUrl(result.path);
@@ -1213,7 +1153,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setupDragAndDrop('#chat-form', false, '#chat-container');
-    setupDragAndDrop('.chat-form-files', true, '#chat-container-files');
 
     async function readFile(path) {
         try {
@@ -1492,25 +1431,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const targetId = btn.getAttribute('data-target');
             document.getElementById(targetId).classList.add('active');
 
-            // Sidebar View Swapping
-            const chatSidebarView = document.getElementById('chat-sidebar-view');
-            const filesSidebarView = document.getElementById('files-sidebar-view');
-
-            if (targetId === 'files-view') {
-                chatSidebarView.classList.remove('active');
-                filesSidebarView.classList.add('active');
-                loadFiles();
-            } else {
-                filesSidebarView.classList.remove('active');
-                chatSidebarView.classList.add('active');
-            }
         });
     });
 
     // Configuration Logic
     const filesDirInput = document.getElementById("files-dir-input");
     const saveConfigBtn = document.getElementById("save-config-btn");
-    const filesPathLabel = document.getElementById("files-path-label");
+    const filesPathLabel = document.getElementById("files-path-label"); // null-safe (element removed)
 
     async function loadConfig() {
         try {
@@ -1518,7 +1445,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const config = await response.json();
             if (config.filesDir) {
                 filesDirInput.value = config.filesDir;
-                filesPathLabel.textContent = config.filesDir;
+                if (filesPathLabel) filesPathLabel.textContent = config.filesDir;
             }
         } catch (e) { console.error("Error loading config:", e); }
     }
@@ -1535,11 +1462,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({ filesDir: newPath })
             });
             const config = await response.json();
-            filesPathLabel.textContent = config.filesDir;
+            if (filesPathLabel) filesPathLabel.textContent = config.filesDir;
             alert("Settings saved successfully!");
-            if (document.getElementById('files-view').classList.contains('active')) {
-                loadFiles();
-            }
+            loadFiles();
         } catch (e) {
             console.error("Error saving config:", e);
             alert("Failed to save settings.");
@@ -1552,6 +1477,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadModels();
     loadConfig();
     loadChatHistory();
+    loadFiles();
     renderRecentFiles();
 
     const recentFilesSearch = document.getElementById('recent-files-search');
