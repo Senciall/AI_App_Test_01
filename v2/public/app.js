@@ -57,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initFileAttach();
   initUploadZone();
   initWebMode();
+  initOnboarding();
 });
 
 // ── Tab switching ────────────────────────────────────────────
@@ -201,14 +202,16 @@ async function sendMessage() {
   if (!text && attachedFiles.length === 0) return;
   if (isStreaming) return;
 
-  // Check for quote reference context
+  // Check for quote reference context (may come from PDF block selection or chat quote)
   const refEl = document.getElementById('quote-reference');
   const quoteText = refEl._quoteText || null;
   const quoteFullContext = refEl._quoteFullContext || null;
+  const blockLabel = refEl._blockLabel || null;
   // Clear the quote card
   refEl.style.display = 'none';
   refEl._quoteText = null;
   refEl._quoteFullContext = null;
+  refEl._blockLabel = null;
 
   // Hide empty state
   emptyState.style.display = 'none';
@@ -324,6 +327,13 @@ async function sendMessage() {
   // Create bot message placeholder
   const botDiv = createMessageDiv('bot');
   const botBody = botDiv.querySelector('.msg-body');
+  // If this reply is tied to a PDF block, prepend a pinned reference tag
+  if (blockLabel) {
+    const refTag = document.createElement('div');
+    refTag.className = 'pe-reply-ref';
+    refTag.textContent = `re: ${blockLabel}`;
+    botBody.appendChild(refTag);
+  }
   chatMessages.appendChild(botDiv);
 
   isStreaming = true;
@@ -1360,3 +1370,217 @@ function openLightbox(src) {
   });
   document.body.appendChild(overlay);
 }
+
+// ══════════════════════════════════════════════════════════════
+//  ONBOARDING — First-launch folder scaffolding
+// ══════════════════════════════════════════════════════════════
+
+const ONBOARDING_TEMPLATES = {
+  job:       ['Resumes & CVs', 'Cover Letters', 'References', 'Certifications', 'Job Listings', 'Getting Started'],
+  freelance: ['Projects', 'Client Contracts', 'Invoices', 'Portfolio', 'References', 'Getting Started'],
+  school:    ['Courses', 'Research Papers', 'Notes', 'Projects', 'Assignments', 'Getting Started'],
+  general:   ['Documents', 'Projects', 'References', 'Archive', 'Getting Started']
+};
+
+function initOnboarding() {
+  if (localStorage.getItem('onboarded')) {
+    loadUserNameBadge();
+    return;
+  }
+
+  const overlay = document.getElementById('onboarding-overlay');
+  overlay.style.display = 'flex';
+
+  // Single-select cards
+  document.querySelectorAll('.ob-card-option').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.ob-card-option').forEach(c => c.classList.remove('ob-selected'));
+      card.classList.add('ob-selected');
+    });
+  });
+
+  document.getElementById('ob-submit-btn').addEventListener('click', submitOnboarding);
+  document.getElementById('ob-name-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitOnboarding();
+  });
+}
+
+async function submitOnboarding() {
+  const nameInput = document.getElementById('ob-name-input');
+  const name = nameInput.value.trim();
+
+  if (!name) {
+    nameInput.classList.remove('ob-shake');
+    void nameInput.offsetWidth; // reflow to restart animation
+    nameInput.classList.add('ob-shake');
+    nameInput.addEventListener('animationend', () => nameInput.classList.remove('ob-shake'), { once: true });
+    nameInput.focus();
+    return;
+  }
+
+  const btn = document.getElementById('ob-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Setting up…';
+
+  const selected = document.querySelector('.ob-card-option.ob-selected');
+  const template = selected ? selected.dataset.template : 'general';
+
+  try {
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userName: name, useTemplate: template })
+    });
+
+    await createOnboardingFolders(template, name);
+
+    localStorage.setItem('onboarded', '1');
+    document.getElementById('onboarding-overlay').style.display = 'none';
+    loadUserNameBadge();
+    loadFileTree();
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Get Started →';
+    console.error('Onboarding error:', err);
+  }
+}
+
+async function createOnboardingFolders(template, userName) {
+  const folders = ONBOARDING_TEMPLATES[template] || ONBOARDING_TEMPLATES.general;
+
+  for (const folder of folders) {
+    try {
+      await fetch('/api/files/mkdir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folder })
+      });
+    } catch (err) {
+      console.warn('Could not create folder:', folder, err);
+    }
+  }
+
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const welcome = `Welcome to MyAI, ${userName}!
+
+This is your Getting Started folder. Here are a few things you can do:
+
+• Upload documents using the ↑ button in the Files sidebar
+• Attach files to any chat by clicking the 📎 button
+• Ask the AI to summarize, rewrite, or explain any document
+
+Set up on ${today}.
+Happy chatting!
+`;
+
+  try {
+    await fetch('/api/files/write-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Getting Started/Welcome.txt', content: welcome })
+    });
+  } catch (err) {
+    console.warn('Could not write welcome file:', err);
+  }
+}
+
+async function loadUserNameBadge() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    if (data.userName) {
+      const badge = document.querySelector('.user-badge');
+      if (badge) badge.textContent = '👤 ' + data.userName;
+    }
+  } catch { /* non-critical, leave default */ }
+}
+
+// ── Ghost Sidebar — proximity reveal engine ──────────────────
+(function ghostSidebar() {
+  const sidebar    = document.getElementById('sidebar');
+  const newChatBtn = document.getElementById('new-chat-btn');
+  const footer     = document.querySelector('.sidebar-footer');
+
+  // Selectors for all ghost items
+  function ghostItems() {
+    return [
+      ...document.querySelectorAll('#chat-list li'),
+      ...document.querySelectorAll('.file-tree summary'),
+      ...document.querySelectorAll('.file-tree .file-item'),
+    ];
+  }
+
+  // Full reveal mask (no gradient cutoff)
+  const MASK_FULL   = 'linear-gradient(to right, black 0px, black 100%)';
+  // Partial reveal (fades at 60px instead of 30px)
+  const MASK_PARTIAL = 'linear-gradient(to right, black 60px, transparent 130px)';
+  // Ghost state
+  const MASK_GHOST  = 'linear-gradient(to right, black 30px, transparent 110px)';
+
+  document.addEventListener('mousemove', (e) => {
+    const mx = e.clientX;
+    const my = e.clientY;
+
+    // ── + New button: reveal when cursor is near top-left ──
+    if (newChatBtn) {
+      newChatBtn.style.opacity = mx < 180 ? '0.8' : '0';
+    }
+
+    // ── User footer: reveal when cursor near bottom-left ──
+    if (footer) {
+      const footerRect = footer.getBoundingClientRect();
+      const footerCX   = footerRect.left + footerRect.width / 2;
+      const footerCY   = footerRect.top  + footerRect.height / 2;
+      const fd = Math.sqrt((mx - footerCX) ** 2 + (my - footerCY) ** 2);
+      footer.style.opacity = fd < 80 ? '0.8' : '0.25';
+    }
+
+    // ── Per-item proximity reveal ──
+    ghostItems().forEach(item => {
+      const rect = item.getBoundingClientRect();
+      const itemCY = rect.top + rect.height / 2;
+      // 2D distance from cursor to item's vertical center on left edge
+      const dist = Math.sqrt(mx * mx + (my - itemCY) ** 2);
+
+      if (dist < 80) {
+        // Full reveal
+        item.style.opacity = '1';
+        item.style.fontSize = '13px';
+        item.style.webkitMaskImage = MASK_FULL;
+        item.style.maskImage = MASK_FULL;
+      } else if (dist < 160) {
+        // Partial reveal
+        const t = (dist - 80) / 80; // 0 → 1
+        item.style.opacity = String(1 - t * 0.4); // 1 → 0.6
+        item.style.fontSize = '12px';
+        item.style.webkitMaskImage = MASK_PARTIAL;
+        item.style.maskImage = MASK_PARTIAL;
+      } else {
+        // Ghost state
+        item.style.opacity = '0.5';
+        item.style.fontSize = '12px';
+        item.style.webkitMaskImage = MASK_GHOST;
+        item.style.maskImage = MASK_GHOST;
+      }
+
+      // Show folder toggle arrow at full opacity when revealed
+      if (item.tagName === 'SUMMARY') {
+        const arrow = item.querySelector('::before');
+        item.style.color = dist < 160
+          ? `rgba(255,255,255,${dist < 80 ? 0.9 : 0.6})`
+          : 'rgba(255,255,255,0.35)';
+      }
+    });
+  });
+
+  // When mouse leaves window, reset all to ghost state
+  document.addEventListener('mouseleave', () => {
+    if (newChatBtn) newChatBtn.style.opacity = '0';
+    ghostItems().forEach(item => {
+      item.style.opacity = '0.5';
+      item.style.fontSize = '12px';
+      item.style.webkitMaskImage = MASK_GHOST;
+      item.style.maskImage = MASK_GHOST;
+    });
+  });
+})();

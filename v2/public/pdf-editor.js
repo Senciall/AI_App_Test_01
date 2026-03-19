@@ -12,6 +12,7 @@ let _activeTool  = 'select';
 let _annotColor  = '#facc15';
 let _activeSel   = null;   // { pageEl, pageIdx, x, y, w, h, spans, text }
 let _lastAiText  = '';
+let _selectedBlock = null; // currently selected paragraph block div
 // Drag state
 let _dragging    = false,  _dragPage = null;
 let _dragStartX  = 0,      _dragStartY = 0;
@@ -97,6 +98,11 @@ function pdfSetTool(toolId) {
     c.style.cursor        = toolId === 'ink' ? 'crosshair' : 'default';
   });
 
+  // Block layer: interactive only when not using a drawing tool
+  document.querySelectorAll('.pe-para-blocks').forEach(c => {
+    c.style.pointerEvents = DRAWING_TOOLS.has(toolId) ? 'none' : 'auto';
+  });
+
   // Color picker visibility
   const colPicker = pdfGet('peb-colors');
   if (colPicker) colPicker.style.display = COLOR_TOOLS.has(toolId) ? 'flex' : 'none';
@@ -171,6 +177,10 @@ async function pdfRenderPage(pageNum) {
     textLayer.appendChild(span);
   });
   pageEl.appendChild(textLayer);
+
+  // Paragraph block overlay (z 6 — above drawing overlay at 5)
+  const blocks = pdfBuildBlocks(tc.items, viewport, pageNum);
+  pdfRenderBlocks(blocks, pageEl, pageNum);
 
   // SVG layer for shapes (z 2)
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -476,6 +486,201 @@ function pdfDeletePage(pageEl, pageIdx) {
   setTimeout(() => { pageEl.remove(); pdfSetStatus(`Page ${pageNum} deleted`); }, 220);
 }
 
+// ── Paragraph block detection & overlay ──────────────────────────────────────
+
+function pdfBuildBlocks(items, viewport, pageNum) {
+  // Map items to screen space
+  const si = items
+    .filter(it => it.str.trim())
+    .map(it => {
+      const tx = _pdfjsLib.Util.transform(viewport.transform, it.transform);
+      const fontH = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]);
+      if (fontH < 1) return null;
+      const w = (it.width || 0) * PDF_SCALE || fontH * it.str.length * 0.55;
+      return { str: it.str, x: tx[4], y: tx[5] - fontH, w, h: fontH };
+    })
+    .filter(Boolean);
+
+  if (!si.length) return [];
+
+  // Sort top→bottom, left→right within same line (within 2px)
+  si.sort((a, b) => Math.abs(a.y - b.y) < 2 ? a.x - b.x : a.y - b.y);
+
+  // Average line height for gap threshold
+  const avgH = si.reduce((s, i) => s + i.h, 0) / si.length;
+
+  // Median font height for heading detection
+  const sortedH = si.map(i => i.h).sort((a, b) => a - b);
+  const medianH = sortedH[Math.floor(sortedH.length / 2)];
+
+  // Group into blocks by Y-gap
+  const raw = [];
+  let cur = null;
+  for (const item of si) {
+    if (!cur) {
+      cur = [item];
+    } else {
+      const last = cur[cur.length - 1];
+      const gap  = item.y - (last.y + last.h);
+      if (gap > 1.5 * avgH) { raw.push(cur); cur = [item]; }
+      else cur.push(item);
+    }
+  }
+  if (cur?.length) raw.push(cur);
+
+  // Build final block objects
+  return raw
+    .map((grp, i) => {
+      const text    = grp.map(it => it.str).join(' ').trim();
+      if (!text) return null;
+      const avgFont = grp.reduce((s, it) => s + it.h, 0) / grp.length;
+      const isHeading = avgFont > medianH * 1.25;
+      const x1 = Math.min(...grp.map(it => it.x));
+      const y1 = Math.min(...grp.map(it => it.y));
+      const x2 = Math.max(...grp.map(it => it.x + it.w));
+      const y2 = Math.max(...grp.map(it => it.y + it.h));
+      if (x2 <= x1 || y2 <= y1) return null;
+
+      // Detect block type: table = items with many short repeated X coords (columnar);
+      // figure = very few items and short text (likely a caption/label)
+      let blockType = isHeading ? 'heading' : 'paragraph';
+      if (!isHeading) {
+        const xCoords = grp.map(it => Math.round(it.x / 10) * 10);
+        const uniqueX = new Set(xCoords).size;
+        const cols = uniqueX / grp.length;
+        if (grp.length >= 4 && cols >= 0.3) blockType = 'table';
+        else if (grp.length <= 3 && text.length < 80) blockType = 'figure';
+      }
+
+      return { blockIdx: i + 1, text, isHeading, blockType, x1, y1, x2, y2, pageNum };
+    })
+    .filter(Boolean);
+}
+
+function pdfRenderBlocks(blocks, pageEl, pageNum) {
+  pageEl.querySelector('.pe-para-blocks')?.remove();
+  if (!blocks.length) return;
+
+  const container = document.createElement('div');
+  container.className = 'pe-para-blocks';
+  container.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;z-index:6;pointer-events:${DRAWING_TOOLS.has(_activeTool) ? 'none' : 'auto'};`;
+
+  const PAD = 4;
+  blocks.forEach(block => {
+    const div = document.createElement('div');
+    const typeClass = {
+      heading:   'pe-para-heading',
+      table:     'pe-para-table',
+      figure:    'pe-para-figure',
+      paragraph: '',
+    }[block.blockType] || '';
+    div.className = 'pe-para-block' + (typeClass ? ' ' + typeClass : '');
+    div.style.cssText = `left:${block.x1 - PAD}px;top:${block.y1 - PAD}px;width:${block.x2 - block.x1 + PAD * 2}px;height:${block.y2 - block.y1 + PAD * 2}px;`;
+    div.title = block.text.slice(0, 120);
+
+    // Floating action bar
+    const bar = document.createElement('div');
+    bar.className = 'pe-block-bar';
+    bar.innerHTML = `
+      <button class="pe-bb" data-action="ask">💬 Ask Agent</button>
+      <button class="pe-bb" data-action="edit">✎ Edit</button>
+      <button class="pe-bb" data-action="copy">Copy</button>
+      <button class="pe-bb" data-action="comment">📌 Comment</button>`;
+    div.appendChild(bar);
+
+    div.addEventListener('click', e => {
+      e.stopPropagation();
+      pdfSelectBlock(div, block, pageEl);
+    });
+
+    bar.addEventListener('click', e => {
+      e.stopPropagation();
+      const action = e.target.closest('[data-action]')?.dataset.action;
+      if (action === 'ask')     pdfSendToAgent(block);
+      if (action === 'edit')    pdfBlockEdit(block);
+      if (action === 'copy')    navigator.clipboard.writeText(block.text).catch(() => {});
+      if (action === 'comment') pdfBlockComment(block, pageEl, pageNum);
+    });
+
+    container.appendChild(div);
+  });
+
+  pageEl.appendChild(container);
+}
+
+function pdfSelectBlock(div, block, pageEl) {
+  // Deselect all other blocks
+  document.querySelectorAll('.pe-para-block.pe-para-selected').forEach(el => {
+    if (el !== div) el.classList.remove('pe-para-selected');
+  });
+
+  div.classList.toggle('pe-para-selected');
+  const isSelected = div.classList.contains('pe-para-selected');
+
+  if (isSelected) {
+    _selectedBlock = div;
+
+    // Feed into the right panel
+    _activeSel = {
+      pageEl, text: block.text, spans: [],
+      x: block.x1, y: block.y1,
+      w: block.x2 - block.x1, h: block.y2 - block.y1,
+    };
+    const sel = pdfGet('ppp-selection'), emp = pdfGet('ppp-empty'), txt = pdfGet('ppp-sel-text');
+    if (sel) sel.style.display = '';
+    if (emp) emp.style.display = 'none';
+    if (txt) txt.textContent  = `"${block.text.slice(0, 200)}${block.text.length > 200 ? '…' : ''}"`;
+    const res = pdfGet('ppp-result');
+    if (res) res.style.display = 'none';
+    _lastAiText = '';
+  } else {
+    _selectedBlock = null;
+    pdfClearSelection();
+  }
+}
+
+function pdfSendToAgent(block) {
+  const docName = _pdfFile?.name?.replace(/\.pdf$/i, '') || 'Doc';
+  const label   = `${docName} ¶${block.blockIdx}, p.${block.pageNum}`;
+
+  // Switch to Chat tab
+  document.querySelector('#top-tabs .tab[data-tab="chat"]')?.click();
+
+  // Inject block as a context pill into the existing quote-reference mechanism
+  setTimeout(() => {
+    const refEl  = document.getElementById('quote-reference');
+    const refTxt = document.getElementById('quote-reference-text');
+    if (refEl && refTxt) {
+      // Store for sendMessage to pick up
+      refEl._quoteText        = block.text;
+      refEl._quoteFullContext = `[${label}]\n${block.text}`;
+      refEl._blockLabel       = label;
+      // Render as a blue badge pill
+      refTxt.innerHTML = `<span class="pe-ctx-badge">${label}</span>`;
+      refEl.style.display = '';
+    }
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    if (input) { input.focus(); if (sendBtn) sendBtn.disabled = false; }
+  }, 80);
+}
+
+function pdfBlockEdit(block) {
+  // Focus the custom instruction textarea in the right panel so user can type immediately
+  const custom = pdfGet('ppp-custom');
+  if (!custom) return;
+  custom.value = '';
+  custom.focus();
+  custom.placeholder = 'e.g. Rewrite more formally, convert to bullet points…';
+}
+
+function pdfBlockComment(block, pageEl, pageNum) {
+  // Place sticky note at the right edge of the block
+  const x = Math.min(block.x2 + 14, parseFloat(pageEl.style.width) - 180);
+  const y = block.y1;
+  pdfPlaceNote(pageEl, pageNum - 1, x, y);
+}
+
 // ── Drag-to-move for notes/textboxes ─────────────────────────────────────────
 function pdfMakeDraggable(el, handle) {
   handle.addEventListener('mousedown', e => {
@@ -540,6 +745,8 @@ function pdfOnSelectionDone(pageEl, pageIdx, canvas, x, y, w, h) {
 function pdfClearSelection() {
   _activeSel = null; _lastAiText = '';
   document.querySelectorAll('.pe-sel-flash').forEach(e => e.remove());
+  // Deselect any block overlay
+  if (_selectedBlock) { _selectedBlock.classList.remove('pe-para-selected'); _selectedBlock = null; }
   const selSection = pdfGet('ppp-selection');
   const emptyEl    = pdfGet('ppp-empty');
   const resEl      = pdfGet('ppp-result');
@@ -721,7 +928,19 @@ function pdfInit() {
   // ESC exits active tool back to select
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && document.getElementById('tab-pdf')?.classList.contains('active')) {
-      pdfSetTool('select');
+      if (_selectedBlock) {
+        // First Escape: deselect block
+        pdfClearSelection();
+      } else {
+        pdfSetTool('select');
+      }
+    }
+  });
+
+  // Click on PDF viewer outside any block deselects the active block
+  document.getElementById('pdf-pages')?.addEventListener('click', e => {
+    if (_selectedBlock && !e.target.closest('.pe-para-block')) {
+      pdfClearSelection();
     }
   });
 }

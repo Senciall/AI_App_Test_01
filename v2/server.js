@@ -346,6 +346,31 @@ app.post('/api/files/upload', upload.single('file'), (req, res) => {
   res.json({ success: true, name: req.file.originalname, path: req.file.filename });
 });
 
+app.post('/api/files/mkdir', async (req, res) => {
+  try {
+    const d = await loadData();
+    const filesDir = d.config.filesDir;
+    if (!req.body.path) return res.status(400).json({ error: 'path required' });
+    const fullPath = path.join(filesDir, req.body.path);
+    if (!fullPath.startsWith(filesDir)) return res.status(403).json({ error: 'Access denied' });
+    await fs.mkdir(fullPath, { recursive: true });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/files/write-text', async (req, res) => {
+  try {
+    const d = await loadData();
+    const filesDir = d.config.filesDir;
+    if (!req.body.path) return res.status(400).json({ error: 'path required' });
+    const fullPath = path.join(filesDir, req.body.path);
+    if (!fullPath.startsWith(filesDir)) return res.status(403).json({ error: 'Access denied' });
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, req.body.content || '', 'utf-8');
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ══════════════════════════════════════════════════════════════
 //  YOUR LIFE — Personal Memory Store
 // ══════════════════════════════════════════════════════════════

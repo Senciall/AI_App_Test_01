@@ -445,5 +445,47 @@
     </form>
   </div>
 </div>
+
+<!-- Onboarding modal (first launch) -->
+<div id="onboarding-overlay" class="ob-overlay" style="display:none">
+  <div id="onboarding-card">
+    <div class="ob-logo">MyAI</div>
+    <h2 class="ob-title">Welcome to MyAI</h2>
+    <p class="ob-subtitle">Let's get you set up in 30 seconds.</p>
+
+    <div class="ob-field">
+      <label for="ob-name-input">Your first name</label>
+      <input type="text" id="ob-name-input" placeholder="e.g. Daniel" autocomplete="off">
+    </div>
+
+    <div>
+      <div class="ob-section-label">What will you use MyAI for?</div>
+      <div id="ob-use-grid">
+        <button class="ob-card-option" data-template="job">
+          <span class="ob-card-icon">💼</span>
+          <span class="ob-card-label">Job Searching</span>
+          <span class="ob-card-desc">Resumes, cover letters, references</span>
+        </button>
+        <button class="ob-card-option" data-template="freelance">
+          <span class="ob-card-icon">🎨</span>
+          <span class="ob-card-label">Freelancing</span>
+          <span class="ob-card-desc">Projects, contracts, invoices</span>
+        </button>
+        <button class="ob-card-option" data-template="school">
+          <span class="ob-card-icon">📚</span>
+          <span class="ob-card-label">School / University</span>
+          <span class="ob-card-desc">Courses, papers, notes</span>
+        </button>
+        <button class="ob-card-option ob-selected" data-template="general">
+          <span class="ob-card-icon">📋</span>
+          <span class="ob-card-label">General</span>
+          <span class="ob-card-desc">Documents, projects, archive</span>
+        </button>
+      </div>
+    </div>
+
+    <button id="ob-submit-btn">Get Started →</button>
+  </div>
+</div>
 </body>
 </html>
