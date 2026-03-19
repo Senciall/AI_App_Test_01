@@ -619,20 +619,25 @@ function pdfSelectBlock(div, block, pageEl) {
 
   if (isSelected) {
     _selectedBlock = div;
-
-    // Feed into the right panel
     _activeSel = {
       pageEl, text: block.text, spans: [],
       x: block.x1, y: block.y1,
       w: block.x2 - block.x1, h: block.y2 - block.y1,
     };
-    const sel = pdfGet('ppp-selection'), emp = pdfGet('ppp-empty'), txt = pdfGet('ppp-sel-text');
-    if (sel) sel.style.display = '';
-    if (emp) emp.style.display = 'none';
-    if (txt) txt.textContent  = `"${block.text.slice(0, 200)}${block.text.length > 200 ? '…' : ''}"`;
-    const res = pdfGet('ppp-result');
-    if (res) res.style.display = 'none';
     _lastAiText = '';
+    // Show context strip
+    const strip = pdfGet('ppp-ctx-strip');
+    const label = pdfGet('ppp-ctx-label');
+    const txt   = pdfGet('ppp-sel-text');
+    const chips = pdfGet('ppp-chips');
+    const empty = pdfGet('ppp-empty');
+    if (strip) strip.style.display = '';
+    if (label) label.textContent = block.blockType === 'heading' ? '📰 Heading' : `¶${block.blockIdx} · p.${block.pageNum}`;
+    if (txt)   txt.textContent   = `"${block.text.slice(0, 160)}${block.text.length > 160 ? '…' : ''}"`;
+    if (chips) chips.style.display = '';
+    if (empty) empty.style.display = 'none';
+    // Focus the input
+    setTimeout(() => pdfGet('ppp-input')?.focus(), 50);
   } else {
     _selectedBlock = null;
     pdfClearSelection();
@@ -722,22 +727,19 @@ function pdfOnSelectionDone(pageEl, pageIdx, canvas, x, y, w, h) {
   pageEl.appendChild(highlight);
   setTimeout(() => highlight.remove(), 900);
 
-  // Update right panel
-  const selSection = pdfGet('ppp-selection');
-  const emptyEl    = pdfGet('ppp-empty');
-  const textEl     = pdfGet('ppp-sel-text');
-  if (selSection) selSection.style.display = '';
-  if (emptyEl)    emptyEl.style.display    = 'none';
-  if (textEl) {
-    textEl.textContent = text
-      ? `"${text.slice(0, 200)}${text.length > 200 ? '…' : ''}"`
-      : '(no text — image/drawing region)';
-  }
-
-  // Close any previous result
-  const resEl = pdfGet('ppp-result');
-  if (resEl) resEl.style.display = 'none';
+  // Show in context strip
+  const strip  = pdfGet('ppp-ctx-strip');
+  const label  = pdfGet('ppp-ctx-label');
+  const textEl = pdfGet('ppp-sel-text');
+  const chips  = pdfGet('ppp-chips');
+  const empty  = pdfGet('ppp-empty');
+  if (strip)  strip.style.display  = '';
+  if (label)  label.textContent    = `✂ ${spans.length} item${spans.length !== 1 ? 's' : ''} selected`;
+  if (textEl) textEl.textContent   = text ? `"${text.slice(0, 160)}${text.length > 160 ? '…' : ''}"` : '(image/drawing region)';
+  if (chips)  chips.style.display  = '';
+  if (empty)  empty.style.display  = 'none';
   _lastAiText = '';
+  setTimeout(() => pdfGet('ppp-input')?.focus(), 50);
 
   console.log(`[PDFStudio] Selection: ${spans.length} spans — "${text.slice(0, 60)}"`);
 }
@@ -745,15 +747,15 @@ function pdfOnSelectionDone(pageEl, pageIdx, canvas, x, y, w, h) {
 function pdfClearSelection() {
   _activeSel = null; _lastAiText = '';
   document.querySelectorAll('.pe-sel-flash').forEach(e => e.remove());
-  // Deselect any block overlay
   if (_selectedBlock) { _selectedBlock.classList.remove('pe-para-selected'); _selectedBlock = null; }
-  const selSection = pdfGet('ppp-selection');
-  const emptyEl    = pdfGet('ppp-empty');
-  const resEl      = pdfGet('ppp-result');
-  if (selSection) selSection.style.display = 'none';
-  if (emptyEl)    emptyEl.style.display    = '';
-  if (resEl)      resEl.style.display      = 'none';
-  pdfGet('ppp-apply-btn') && (pdfGet('ppp-apply-btn').style.display = 'none');
+  const strip  = pdfGet('ppp-ctx-strip');
+  const chips  = pdfGet('ppp-chips');
+  const empty  = pdfGet('ppp-empty');
+  const thread = pdfGet('ppp-thread');
+  if (strip) strip.style.display = 'none';
+  if (chips) chips.style.display = 'none';
+  // Show empty hint only when thread has no messages
+  if (empty) empty.style.display = (thread && thread.children.length > 0) ? 'none' : '';
 }
 
 // ── AI panel ──────────────────────────────────────────────────────────────────
@@ -766,24 +768,34 @@ function pdfGetContext() {
 
 async function pdfRunAI(instruction) {
   const { text, source } = pdfGetContext();
-  const resultEl   = pdfGet('ppp-result');
-  const resultBody = pdfGet('ppp-result-body');
-  const applyBtn   = pdfGet('ppp-apply-btn');
-  if (!resultEl || !resultBody) return;
+  const thread = pdfGet('ppp-thread');
+  const empty  = pdfGet('ppp-empty');
+  if (!thread) return;
 
-  resultEl.style.display = '';
-  resultBody.innerHTML   = '<span class="pdf-ai-spinner"></span> Working…';
-  if (applyBtn) applyBtn.style.display = 'none';
-  _lastAiText = '';
-  resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (empty) empty.style.display = 'none';
+
+  // User bubble
+  const userBubble = document.createElement('div');
+  userBubble.className = 'ppp-msg ppp-msg-user';
+  userBubble.textContent = instruction;
+  thread.appendChild(userBubble);
+  thread.scrollTop = thread.scrollHeight;
+
+  // AI bubble (streaming)
+  const aiBubble = document.createElement('div');
+  aiBubble.className = 'ppp-msg ppp-msg-ai';
+  aiBubble.innerHTML = '<span class="pdf-ai-spinner"></span>';
+  thread.appendChild(aiBubble);
+  thread.scrollTop = thread.scrollHeight;
 
   const isEdit = /\b(fix|replac|rewrit|chang|updat|correct|remov|delet|insert|make|translat|reword|shorten|expand|convert|format|capitaliz|lower|upper|improve|condense|structure|profess|smarter|cleaner|simpler|shorter|longer)\b/i.test(instruction);
 
   const prompt = source === 'selection'
-    ? `Text selected from PDF:\n"${text}"\n\nInstruction: ${instruction}\n\n${isEdit ? 'Return ONLY the replacement text. No explanation, no quotation marks.' : 'Answer concisely in 2–4 sentences.'}`
-    : `Full document text:\n${text}\n\nInstruction: ${instruction}\n\nRespond concisely.`;
+    ? `Text from PDF:\n"${text}"\n\nInstruction: ${instruction}\n\n${isEdit ? 'Return ONLY the replacement text. No explanation, no quotation marks.' : 'Answer concisely.'}`
+    : `Document text:\n${text.slice(0, 4000)}\n\nInstruction: ${instruction}\n\nRespond concisely.`;
 
   const model = pdfGet('model-select')?.value || 'gemma3:latest';
+  _lastAiText = '';
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -792,22 +804,30 @@ async function pdfRunAI(instruction) {
     });
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = '';
-    resultBody.textContent = '';
+    aiBubble.textContent = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
       const lines = buf.split('\n'); buf = lines.pop();
       for (const l of lines) {
-        try { const d = JSON.parse(l); if (d.message?.content) { _lastAiText += d.message.content; resultBody.textContent = _lastAiText; } } catch { }
+        try { const d = JSON.parse(l); if (d.message?.content) { _lastAiText += d.message.content; aiBubble.textContent = _lastAiText; } } catch { }
       }
+      thread.scrollTop = thread.scrollHeight;
     }
+    // Show inline apply button for edit-type results
     if (isEdit && _activeSel?.spans.length && _lastAiText.trim()) {
-      if (applyBtn) applyBtn.style.display = '';
+      const applyBtn = document.createElement('button');
+      applyBtn.className = 'ppp-apply-inline';
+      applyBtn.textContent = '✔ Apply to PDF';
+      applyBtn.addEventListener('click', () => { pdfApplyEdit(); applyBtn.remove(); });
+      aiBubble.appendChild(document.createElement('br'));
+      aiBubble.appendChild(applyBtn);
     }
   } catch (e) {
-    resultBody.textContent = '⚠ ' + e.message;
+    aiBubble.textContent = '⚠ ' + e.message;
   }
+  thread.scrollTop = thread.scrollHeight;
 }
 
 function pdfApplyEdit() {
@@ -893,37 +913,35 @@ function pdfInit() {
     });
   });
 
-  // AI panel: workflow buttons
-  document.querySelectorAll('.ppp-ai-btn').forEach(btn => {
+  // Agent panel: quick-action chips
+  document.querySelectorAll('.ppp-chip').forEach(btn => {
     btn.addEventListener('click', () => pdfRunAI(btn.dataset.prompt));
   });
 
-  // AI panel: translate
-  pdfGet('ppp-translate-btn')?.addEventListener('click', () => {
-    const lang = pdfGet('ppp-lang')?.value || 'Spanish';
-    pdfRunAI(`Translate this text to ${lang}. Return only the translated text, nothing else.`);
-  });
-
-  // AI panel: custom instruction
-  pdfGet('ppp-run-btn')?.addEventListener('click', () => {
-    const txt = pdfGet('ppp-custom')?.value?.trim();
-    if (txt) pdfRunAI(txt);
-  });
-  pdfGet('ppp-custom')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); pdfGet('ppp-run-btn')?.click(); }
-  });
-
-  // AI panel: clear selection
+  // Agent panel: clear selection
   pdfGet('ppp-sel-clear')?.addEventListener('click', pdfClearSelection);
 
-  // AI panel: apply
-  pdfGet('ppp-apply-btn')?.addEventListener('click', pdfApplyEdit);
-
-  // AI panel: dismiss result
-  pdfGet('ppp-result-close')?.addEventListener('click', () => {
-    pdfGet('ppp-result').style.display = 'none'; _lastAiText = '';
-    pdfGet('ppp-apply-btn').style.display = 'none';
-  });
+  // Agent panel: text input + send button
+  const pppInput = pdfGet('ppp-input');
+  const pppSend  = pdfGet('ppp-send-btn');
+  if (pppInput) {
+    pppInput.addEventListener('input', () => {
+      if (pppSend) pppSend.disabled = !pppInput.value.trim();
+    });
+    pppInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const txt = pppInput.value.trim();
+        if (txt) { pdfRunAI(txt); pppInput.value = ''; if (pppSend) pppSend.disabled = true; }
+      }
+    });
+  }
+  if (pppSend) {
+    pppSend.addEventListener('click', () => {
+      const txt = pppInput?.value.trim();
+      if (txt) { pdfRunAI(txt); pppInput.value = ''; pppSend.disabled = true; }
+    });
+  }
 
   // ESC exits active tool back to select
   document.addEventListener('keydown', e => {

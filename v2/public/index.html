@@ -160,7 +160,12 @@
     </section>
 
     <!-- ─── PDF STUDIO TAB ─── -->
-    <section id="tab-pdf" class="tab-panel">
+    <section id="tab-pdf" class="tab-panel" style="padding:0;overflow:hidden;">
+      <iframe src="pdf-viewer.html" style="width:100%;height:100%;border:none;display:block;"></iframe>
+    </section>
+
+    <!-- ─── PDF STUDIO TAB (OLD — kept for reference, hidden) ─── -->
+    <section id="tab-pdf-old" class="tab-panel" style="display:none!important;">
 
       <!-- ═══ Editor Toolbar ═══ -->
       <div class="pdf-editor-bar" id="pdf-editor-bar">
@@ -285,70 +290,43 @@
           <div id="pdf-pages" class="pdf-pages"></div>
         </div>
 
-        <!-- Properties / AI panel -->
+        <!-- AI Agent Panel -->
         <aside class="pdf-props-panel" id="pdf-props-panel">
 
-          <!-- Empty state -->
+          <!-- Context strip: shows selected text/block -->
+          <div class="ppp-ctx-strip" id="ppp-ctx-strip" style="display:none">
+            <div class="ppp-ctx-top">
+              <span class="ppp-ctx-label" id="ppp-ctx-label">✂ Selection</span>
+              <button id="ppp-sel-clear" class="ppp-ctx-clear">✕</button>
+            </div>
+            <div class="ppp-ctx-text" id="ppp-sel-text"></div>
+          </div>
+
+          <!-- Empty hint -->
           <div class="ppp-empty" id="ppp-empty">
-            <div class="ppp-hint-icon" id="ppp-hint-icon">↖</div>
-            <div class="ppp-hint-text" id="ppp-hint-text">Use the <strong>Select</strong> tool and drag over text to activate AI tools</div>
+            <div class="ppp-hint-icon">↖</div>
+            <div class="ppp-hint-text">Select text or click a paragraph block, then ask the AI anything about it</div>
           </div>
 
-          <!-- Selection context (shown when text is selected) -->
-          <div class="ppp-selection" id="ppp-selection" style="display:none">
+          <!-- Agent thread -->
+          <div class="ppp-thread" id="ppp-thread"></div>
 
-            <div class="ppp-sel-badge">
-              <div class="ppp-sel-top">
-                <span class="ppp-sel-label">✂ Selection</span>
-                <button id="ppp-sel-clear" class="ppp-sel-clear">✕ Clear</button>
-              </div>
-              <div class="ppp-sel-text" id="ppp-sel-text"></div>
-            </div>
-
-            <div class="ppp-section">
-              <div class="ppp-section-label">AI WORKFLOWS</div>
-              <div class="ppp-ai-tools">
-                <button class="ppp-ai-btn" data-prompt="Improve the writing quality and clarity while keeping the same meaning. Return only the improved text.">✨ Smart Rewrite</button>
-                <button class="ppp-ai-btn" data-prompt="Explain what this text means in plain, simple language.">💡 Explain</button>
-                <button class="ppp-ai-btn" data-prompt="Fix all grammar, spelling, and punctuation. Return only the corrected text.">✓ Fix Grammar</button>
-                <button class="ppp-ai-btn" data-prompt="Summarize this in 2–3 sentences.">📋 Summarize</button>
-                <button class="ppp-ai-btn" data-prompt="Rewrite in a formal, professional tone. Return only the rewritten text.">💼 Make Professional</button>
-                <button class="ppp-ai-btn" data-prompt="Condense to half the length while keeping all key information. Return only the condensed text.">✂ Condense</button>
-              </div>
-            </div>
-
-            <div class="ppp-section">
-              <div class="ppp-section-label">TRANSLATE</div>
-              <div class="ppp-translate">
-                <select id="ppp-lang" class="ppp-select">
-                  <option>Spanish</option><option>French</option><option>German</option>
-                  <option>Italian</option><option>Portuguese</option>
-                  <option>Mandarin Chinese</option><option>Japanese</option>
-                  <option>Korean</option><option>Arabic</option><option>Russian</option>
-                </select>
-                <button id="ppp-translate-btn" class="ppp-go-btn">Go</button>
-              </div>
-            </div>
-
-            <div class="ppp-section">
-              <div class="ppp-section-label">CUSTOM INSTRUCTION</div>
-              <textarea id="ppp-custom" class="ppp-custom" rows="3"
-                placeholder="e.g. Convert to bullet points, write a follow-up email, turn into code…"></textarea>
-              <button id="ppp-run-btn" class="ppp-run-btn">Run  <span class="ppp-shortcut">Ctrl+↵</span></button>
-            </div>
-
+          <!-- Quick-action chips -->
+          <div class="ppp-chips" id="ppp-chips" style="display:none">
+            <button class="ppp-chip" data-prompt="Explain what this text means in plain, simple language.">💡 Explain</button>
+            <button class="ppp-chip" data-prompt="Improve the writing quality and clarity while keeping the same meaning. Return only the improved text.">✨ Rewrite</button>
+            <button class="ppp-chip" data-prompt="Summarize this in 2–3 sentences.">📋 Summarize</button>
+            <button class="ppp-chip" data-prompt="Fix all grammar, spelling, and punctuation. Return only the corrected text.">✓ Grammar</button>
+            <button class="ppp-chip" data-prompt="Translate to Spanish. Return only the translated text.">🌐 Translate</button>
+            <button class="ppp-chip" data-prompt="Rewrite in a formal, professional tone. Return only the rewritten text.">💼 Formalize</button>
           </div>
 
-          <!-- Result -->
-          <div class="ppp-result" id="ppp-result" style="display:none">
-            <div class="ppp-result-head">
-              <span class="ppp-result-label">Result</span>
-              <div class="ppp-result-acts">
-                <button id="ppp-apply-btn" class="ppp-apply-btn" style="display:none">✔ Apply to PDF</button>
-                <button id="ppp-result-close" class="ppp-close-btn">✕</button>
-              </div>
-            </div>
-            <div class="ppp-result-body" id="ppp-result-body"></div>
+          <!-- Input -->
+          <div class="ppp-input-wrap">
+            <textarea id="ppp-input" class="ppp-input" placeholder="Ask anything about the selected text…" rows="2"></textarea>
+            <button id="ppp-send-btn" class="ppp-send-btn" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
           </div>
 
         </aside>

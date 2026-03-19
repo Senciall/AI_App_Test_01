@@ -1497,11 +1497,23 @@ async function loadUserNameBadge() {
 
 // ── Ghost Sidebar — proximity reveal engine ──────────────────
 (function ghostSidebar() {
-  const sidebar    = document.getElementById('sidebar');
   const newChatBtn = document.getElementById('new-chat-btn');
   const footer     = document.querySelector('.sidebar-footer');
 
-  // Selectors for all ghost items
+  // Fix 1: push sidebar list below the top tab bar
+  function adjustSidebarTop() {
+    const tabBar = document.getElementById('top-tabs');
+    const sections = document.querySelectorAll('.sidebar-section');
+    if (tabBar && sections.length) {
+      const offset = tabBar.offsetHeight + 24;
+      // Apply only to the first section (brand + first section together)
+      document.querySelector('.sidebar-brand').style.paddingTop = (tabBar.offsetHeight + 8) + 'px';
+    }
+  }
+  adjustSidebarTop();
+  window.addEventListener('resize', adjustSidebarTop);
+
+  // All ghost items (excludes section labels — they have fixed opacity)
   function ghostItems() {
     return [
       ...document.querySelectorAll('#chat-list li'),
@@ -1510,77 +1522,70 @@ async function loadUserNameBadge() {
     ];
   }
 
-  // Full reveal mask (no gradient cutoff)
-  const MASK_FULL   = 'linear-gradient(to right, black 0px, black 100%)';
-  // Partial reveal (fades at 60px instead of 30px)
-  const MASK_PARTIAL = 'linear-gradient(to right, black 60px, transparent 130px)';
-  // Ghost state
-  const MASK_GHOST  = 'linear-gradient(to right, black 30px, transparent 110px)';
+  // Apply transition to each item so bulge animates smoothly
+  function ensureTransition(item) {
+    if (!item._ghostTransitionSet) {
+      item.style.transition = 'font-size 0.15s ease, opacity 0.2s ease, color 0.2s ease';
+      item._ghostTransitionSet = true;
+    }
+  }
 
   document.addEventListener('mousemove', (e) => {
     const mx = e.clientX;
     const my = e.clientY;
 
-    // ── + New button: reveal when cursor is near top-left ──
-    if (newChatBtn) {
-      newChatBtn.style.opacity = mx < 180 ? '0.8' : '0';
-    }
+    // + New button
+    if (newChatBtn) newChatBtn.style.opacity = mx < 180 ? '0.8' : '0';
 
-    // ── User footer: reveal when cursor near bottom-left ──
+    // User footer
     if (footer) {
-      const footerRect = footer.getBoundingClientRect();
-      const footerCX   = footerRect.left + footerRect.width / 2;
-      const footerCY   = footerRect.top  + footerRect.height / 2;
-      const fd = Math.sqrt((mx - footerCX) ** 2 + (my - footerCY) ** 2);
+      const r = footer.getBoundingClientRect();
+      const fd = Math.sqrt((mx - (r.left + r.width / 2)) ** 2 + (my - (r.top + r.height / 2)) ** 2);
       footer.style.opacity = fd < 80 ? '0.8' : '0.25';
     }
 
-    // ── Per-item proximity reveal ──
+    // Per-item proximity reveal — Fix 3: tighter, brighter tiers
     ghostItems().forEach(item => {
-      const rect = item.getBoundingClientRect();
+      ensureTransition(item);
+      const rect   = item.getBoundingClientRect();
       const itemCY = rect.top + rect.height / 2;
-      // 2D distance from cursor to item's vertical center on left edge
-      const dist = Math.sqrt(mx * mx + (my - itemCY) ** 2);
+      const dist   = Math.sqrt(mx * mx + (my - itemCY) ** 2);
 
-      if (dist < 80) {
-        // Full reveal
-        item.style.opacity = '1';
-        item.style.fontSize = '13px';
-        item.style.webkitMaskImage = MASK_FULL;
-        item.style.maskImage = MASK_FULL;
-      } else if (dist < 160) {
-        // Partial reveal
-        const t = (dist - 80) / 80; // 0 → 1
-        item.style.opacity = String(1 - t * 0.4); // 1 → 0.6
-        item.style.fontSize = '12px';
-        item.style.webkitMaskImage = MASK_PARTIAL;
-        item.style.maskImage = MASK_PARTIAL;
+      if (dist < 60) {
+        item.style.webkitMaskImage = 'none';
+        item.style.maskImage       = 'none';
+        item.style.opacity         = '1';
+        item.style.color           = 'rgba(255,255,255,1)';
+        item.style.fontSize        = '14px';
+        item.style.fontWeight      = '500';
+        item.style.letterSpacing   = '0.01em';
+      } else if (dist < 150) {
+        item.style.webkitMaskImage = 'linear-gradient(to right, black 55px, transparent 140px)';
+        item.style.maskImage       = 'linear-gradient(to right, black 55px, transparent 140px)';
+        item.style.opacity         = '0.45';
+        item.style.color           = 'rgba(255,255,255,0.7)';
+        item.style.fontSize        = '12px';
+        item.style.fontWeight      = '400';
+        item.style.letterSpacing   = '0';
       } else {
-        // Ghost state
-        item.style.opacity = '0.5';
-        item.style.fontSize = '12px';
-        item.style.webkitMaskImage = MASK_GHOST;
-        item.style.maskImage = MASK_GHOST;
-      }
-
-      // Show folder toggle arrow at full opacity when revealed
-      if (item.tagName === 'SUMMARY') {
-        const arrow = item.querySelector('::before');
-        item.style.color = dist < 160
-          ? `rgba(255,255,255,${dist < 80 ? 0.9 : 0.6})`
-          : 'rgba(255,255,255,0.35)';
+        item.style.webkitMaskImage = 'linear-gradient(to right, black 22px, transparent 80px)';
+        item.style.maskImage       = 'linear-gradient(to right, black 22px, transparent 80px)';
+        item.style.opacity         = '0.15';
+        item.style.color           = 'rgba(255,255,255,0.5)';
+        item.style.fontSize        = '12px';
+        item.style.fontWeight      = '400';
+        item.style.letterSpacing   = '0';
       }
     });
   });
 
-  // When mouse leaves window, reset all to ghost state
   document.addEventListener('mouseleave', () => {
     if (newChatBtn) newChatBtn.style.opacity = '0';
     ghostItems().forEach(item => {
-      item.style.opacity = '0.5';
-      item.style.fontSize = '12px';
-      item.style.webkitMaskImage = MASK_GHOST;
-      item.style.maskImage = MASK_GHOST;
+      item.style.opacity         = '0.15';
+      item.style.fontSize        = '12px';
+      item.style.webkitMaskImage = 'linear-gradient(to right, black 22px, transparent 80px)';
+      item.style.maskImage       = 'linear-gradient(to right, black 22px, transparent 80px)';
     });
   });
 })();
