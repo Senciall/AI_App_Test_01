@@ -1,0 +1,509 @@
+/* ═══════════════════════════════════════════════════════════════
+   pdf-editor.css — PDF Editor styles (annotation tools, status bar)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Page rendering ────────────────────────────────────────────── */
+
+.pve-pages {
+  flex: 1; overflow-y: auto; overflow-x: auto;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; padding: 20px 16px;
+  background: #1a1a1a;
+}
+.pve-pages::-webkit-scrollbar { width: 6px; }
+.pve-pages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+.pve-page-wrap {
+  position: relative;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.pve-page-canvas {
+  display: block;
+}
+
+/* ── Text block layer ──────────────────────────────────────────── */
+
+.pve-block-layer {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.pve-text-block {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  transition: border-color 0.15s, background 0.15s;
+  z-index: 2;
+}
+.pve-text-block:hover {
+  border-color: rgba(74,144,217,0.4);
+  background: rgba(74,144,217,0.06);
+}
+.pve-block-selected {
+  border-color: rgba(74,144,217,0.7) !important;
+  background: rgba(74,144,217,0.1) !important;
+  box-shadow: 0 0 0 1px rgba(74,144,217,0.3);
+}
+.pve-block-editing {
+  border-color: rgba(52,211,153,0.7) !important;
+  background: rgba(52,211,153,0.08) !important;
+}
+.pve-block-dirty {
+  border-color: rgba(245,158,11,0.5) !important;
+  background: rgba(245,158,11,0.06) !important;
+}
+.pve-block-dirty::after {
+  content: '\u270E';
+  position: absolute; top: -8px; right: -8px;
+  width: 16px; height: 16px;
+  font-size: 10px; line-height: 16px; text-align: center;
+  background: #f59e0b; color: #fff;
+  border-radius: 50%;
+}
+
+/* ── Block inline editor ──────────────────────────────────────── */
+
+.pve-block-editor {
+  position: absolute;
+  z-index: 30;
+  background: rgba(255,255,255,0.97);
+  border: 2px solid rgba(52,211,153,0.8);
+  border-radius: 3px;
+  padding: 4px 6px;
+  outline: none;
+  resize: both;
+  min-width: 80px;
+  max-width: 600px;
+  color: #000;
+  line-height: 1.3;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  font-family: inherit;
+}
+
+.pve-annot-canvas {
+  position: absolute; top: 0; left: 0;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+/* ── Text input overlay ────────────────────────────────────────── */
+
+.pve-text-input {
+  position: absolute;
+  background: rgba(255,255,255,0.95);
+  border: 1.5px solid var(--accent, #4A90D9);
+  border-radius: 3px;
+  padding: 4px 6px;
+  outline: none;
+  resize: both;
+  min-width: 100px; min-height: 28px;
+  max-width: 400px;
+  z-index: 20;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.3;
+  color: #000;
+}
+
+/* ── Thumbnail sidebar ─────────────────────────────────────────── */
+
+.pve-thumb-list {
+  display: flex; flex-direction: column;
+  gap: 8px; padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.pve-thumb-list::-webkit-scrollbar { width: 4px; }
+.pve-thumb-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.pve-thumb {
+  cursor: pointer;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 4px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pve-thumb:hover { background: rgba(255,255,255,0.05); }
+.pve-thumb-active {
+  border-color: var(--accent, #4A90D9);
+  background: rgba(74,144,217,0.08);
+}
+
+.pve-thumb canvas {
+  width: 100%; height: auto;
+  border-radius: 3px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.pve-thumb-label {
+  font-size: 10px; color: var(--text-sec, #909090);
+}
+
+/* ── Status bar ────────────────────────────────────────────────── */
+
+.pve-status-bar {
+  height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 14px;
+  background: var(--bg-sidebar, #181818);
+  border-top: 0.5px solid rgba(255,255,255,0.06);
+  font-size: 11px; color: var(--text-muted, #5a5a5a);
+  user-select: none;
+}
+
+.pve-status-item {
+  display: flex; align-items: center; gap: 4px;
+}
+
+.pve-status-sep {
+  width: 0.5px; height: 14px;
+  background: rgba(255,255,255,0.08);
+}
+
+/* ── Toolbar enhancements ──────────────────────────────────────── */
+
+.pvr-tool-btn svg {
+  flex-shrink: 0;
+}
+
+.pvr-tool-btn.pvr-active {
+  background: rgba(74,144,217,0.15);
+  color: var(--accent, #4A90D9);
+}
+
+/* ── Properties bar (shown in ribbon band when object selected) ── */
+
+.pve-props-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 100%;
+}
+
+.pve-prop-label {
+  font-size: 10px; color: var(--text-muted, #5a5a5a);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.pve-prop-input {
+  background: var(--surface, #252525);
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  color: var(--text, #E0E0E0);
+  font-size: 11px; padding: 3px 6px;
+  outline: none; width: 60px;
+}
+.pve-prop-input:focus { border-color: var(--accent-ring, rgba(74,144,217,0.35)); }
+
+.pve-prop-select {
+  background: var(--surface, #252525);
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  color: var(--text, #E0E0E0);
+  font-size: 11px; padding: 2px 4px;
+  outline: none; cursor: pointer;
+}
+
+.pve-prop-color {
+  width: 24px; height: 24px;
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  cursor: pointer; padding: 0;
+  background: none;
+}
+
+/* ── Zoom controls in toolbar ──────────────────────────────────── */
+
+.pve-zoom-group {
+  display: flex; align-items: center; gap: 4px;
+}
+
+.pve-zoom-btn {
+  width: 26px; height: 26px;
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-sec, #909090);
+  font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.pve-zoom-btn:hover { background: rgba(255,255,255,0.06); color: var(--text, #E0E0E0); }
+
+.pve-zoom-label {
+  font-size: 11px; color: var(--text-sec, #909090);
+  min-width: 40px; text-align: center;
+}
+
+/* ── Stamp presets dropdown ────────────────────────────────────── */
+
+.pve-stamp-dropdown {
+  display: none; position: absolute;
+  top: 100%; left: 0;
+  background: var(--surface2, #2d2d2d);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  border-radius: 6px; padding: 4px 0;
+  z-index: 100; min-width: 140px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.pve-stamp-dropdown.open { display: block; }
+.pve-stamp-option {
+  display: block; width: 100%; text-align: left;
+  padding: 5px 12px; border: none; background: none;
+  font-size: 11px; color: var(--text-sec, #909090);
+  cursor: pointer;
+}
+.pve-stamp-option:hover { background: rgba(255,255,255,0.06); color: var(--text, #E0E0E0); }
+
+/* ── Loading / error states ────────────────────────────────────── */
+
+.pve-loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; font-size: 14px; color: var(--text-sec, #909090);
+}
+
+.pve-error {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; font-size: 14px; color: #ef4444;
+}
+
+/* ── Cursor overrides per tool ─────────────────────────────────── */
+
+.pve-pages[data-tool="text"]       .pve-annot-canvas { cursor: text; }
+.pve-pages[data-tool="highlight"]  .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="freehand"]   .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="rectangle"]  .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="ellipse"]    .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="line"]       .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="arrow"]      .pve-annot-canvas { cursor: crosshair; }
+.pve-pages[data-tool="stickynote"] .pve-annot-canvas { cursor: cell; }
+.pve-pages[data-tool="stamp"]      .pve-annot-canvas { cursor: cell; }
+.pve-pages[data-tool="eraser"]     .pve-annot-canvas { cursor: pointer; }
+.pve-pages[data-tool="select"]     .pve-annot-canvas { cursor: default; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Google Docs-style flat toolbar
+   ═══════════════════════════════════════════════════════════════ */
+
+.pvr-gdocs-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 0 6px;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pvr-gdocs-bar::-webkit-scrollbar { display: none; }
+
+/* ── Icon button (base) ─────────────────────────────────────── */
+.pvr-ib {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border: none; background: transparent; border-radius: 4px;
+  color: var(--text-sec, #909090); cursor: pointer;
+  font-family: inherit; font-size: 13px;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0; padding: 0;
+}
+.pvr-ib:hover { background: rgba(255,255,255,0.07); color: var(--text, #E0E0E0); }
+.pvr-ib.pvr-active {
+  background: rgba(74,144,217,0.15);
+  color: var(--accent, #4A90D9);
+}
+.pvr-ib.pvr-sm { width: 24px; height: 24px; }
+
+/* ── Vertical divider ────────────────────────────────────────── */
+.pvr-div {
+  width: 1px; height: 20px;
+  background: rgba(255,255,255,0.08);
+  flex-shrink: 0; margin: 0 3px;
+}
+
+/* ── Zoom percentage label ───────────────────────────────────── */
+.pvr-zoom-pct {
+  font-size: 11px; min-width: 38px; text-align: center;
+  color: var(--text-sec, #909090);
+  user-select: none;
+}
+
+/* ── Select dropdown (font family) ───────────────────────────── */
+.pvr-select {
+  background: var(--surface, #252525);
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  color: var(--text, #E0E0E0);
+  font-size: 11px; padding: 3px 6px;
+  outline: none; cursor: pointer;
+  max-width: 100px; height: 28px;
+  font-family: inherit;
+}
+.pvr-select:focus { border-color: var(--accent-ring, rgba(74,144,217,0.35)); }
+
+/* ── Font size input ─────────────────────────────────────────── */
+.pvr-sz-input {
+  width: 32px; height: 26px;
+  background: var(--surface, #252525);
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  color: var(--text, #E0E0E0);
+  font-size: 12px; text-align: center;
+  outline: none; padding: 0;
+  font-family: inherit;
+}
+.pvr-sz-input:focus { border-color: var(--accent-ring, rgba(74,144,217,0.35)); }
+
+/* ── Format buttons (B I U) ──────────────────────────────────── */
+.pvr-fmt { font-size: 14px; font-family: serif; }
+
+/* ── Color button with underline bar ─────────────────────────── */
+.pvr-clr-btn {
+  position: relative;
+  flex-direction: column; gap: 0;
+  width: 30px; height: 30px;
+}
+.pvr-clr-letter {
+  font-size: 15px; font-weight: 700;
+  line-height: 1;
+}
+.pvr-clr-bar {
+  display: block;
+  width: 16px; height: 3px;
+  border-radius: 1px;
+  position: absolute;
+  bottom: 3px; left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ── Color swatches (inline row) ─────────────────────────────── */
+.pvr-swatches {
+  display: flex; align-items: center; gap: 3px;
+  flex-shrink: 0;
+}
+.pvr-sw {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer;
+  padding: 0; flex-shrink: 0;
+  transition: border-color 0.12s, transform 0.1s;
+}
+.pvr-sw:hover { transform: scale(1.15); }
+.pvr-sw.pvr-sw-on {
+  border-color: rgba(255,255,255,0.7);
+  transform: scale(1.15);
+}
+
+/* ── Fill controls ───────────────────────────────────────────── */
+.pvr-fill-swatch {
+  width: 22px; height: 22px;
+  border: 1px solid var(--border2, #3a3a3a);
+  border-radius: 4px;
+  cursor: pointer; padding: 0; background: none;
+  flex-shrink: 0;
+}
+.pvr-fill-lbl {
+  font-size: 10px; color: var(--text-muted, #5a5a5a);
+  display: flex; align-items: center; gap: 3px;
+  flex-shrink: 0; user-select: none; cursor: pointer;
+}
+.pvr-fill-lbl input { width: 12px; height: 12px; }
+
+/* ── Mode badge ("Editing") ──────────────────────────────────── */
+.pvr-mode-badge {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-sec, #909090);
+  padding: 4px 10px; border-radius: 14px;
+  border: 1px solid var(--border2, #3a3a3a);
+  flex-shrink: 0; user-select: none;
+  cursor: default;
+}
+
+/* ── Dropdown wrapper (stamp, spacing) ───────────────────────── */
+.pvr-drop-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* ── Generic dropdown panel ──────────────────────────────────── */
+.pvr-spacing-dd {
+  display: none;
+  position: absolute; top: calc(100% + 4px); left: 0;
+  background: var(--surface2, #2d2d2d);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  border-radius: 8px; padding: 6px 0;
+  z-index: 200; min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+.pvr-spacing-dd.open { display: block; }
+
+.pvr-dd-label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: rgba(255,255,255,0.35);
+  padding: 4px 14px 2px;
+}
+.pvr-dd-opt {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 14px; border: none; background: none;
+  font-size: 12px; color: var(--text-sec, #909090);
+  cursor: pointer; font-family: inherit;
+}
+.pvr-dd-opt:hover { background: rgba(255,255,255,0.06); color: var(--text, #E0E0E0); }
+.pvr-dd-opt-on { color: var(--accent, #4A90D9); }
+.pvr-dd-opt-on::before { content: '\2713 '; }
+.pvr-dd-sep {
+  height: 1px; background: rgba(255,255,255,0.06);
+  margin: 4px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Edit mode styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Edit mode button */
+.pvr-edit-mode-btn {
+  width: auto !important; padding: 0 10px !important;
+  gap: 5px;
+  border: 1px solid var(--accent, #4A90D9) !important;
+  color: var(--accent, #4A90D9) !important;
+}
+.pvr-edit-mode-btn:hover {
+  background: rgba(74,144,217,0.12) !important;
+}
+
+/* Back-to-view / discard buttons */
+.pvr-back-view-btn {
+  width: auto !important; padding: 0 8px !important;
+  gap: 4px;
+}
+
+/* Mode badge in edit mode (green accent) */
+.pvr-mode-badge.pvr-mode-edit {
+  border-color: rgba(52,211,153,0.5);
+  color: #34d399;
+}
+
+/* Edit mode info banner */
+.pve-edit-banner {
+  background: rgba(74,144,217,0.12);
+  border: 1px solid rgba(74,144,217,0.25);
+  border-radius: 8px;
+  padding: 10px 18px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-sec, #b0b0b0);
+  cursor: pointer;
+  max-width: 816px;
+  text-align: center;
+  animation: pve-banner-in 0.3s ease;
+}
+@keyframes pve-banner-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,288 @@
+/* ═══════════════════════════════════════════════════════════════
+   gdoc-editor.css — Styles for the grid-flow document editor
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Center container ─────────────────────────────────────────── */
+
+.gd-center {
+  flex: 1; overflow-y: auto; overflow-x: auto;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 24px; padding: 28px 16px;
+  background: #1a1a1a;
+}
+.gd-center::-webkit-scrollbar { width: 6px; }
+.gd-center::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+/* ── Page ─────────────────────────────────────────────────────── */
+
+.gd-page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.45);
+  flex-shrink: 0;
+  border-radius: 2px;
+  padding: 48px 56px;
+  box-sizing: border-box;
+  /* min-height set inline from canvas.height */
+  overflow: hidden;
+}
+
+/* ── Flow row (one group of widgets at the same flowIndex) ───── */
+
+.gd-flow-row {
+  display: grid;
+  /* columns set inline via JS: repeat(12, 1fr) */
+  align-items: start;    /* widgets in a row align to top */
+  margin-bottom: 2px;    /* small gap between flow rows */
+}
+
+/* ── Widget (base) ────────────────────────────────────────────── */
+
+.gd-widget {
+  position: relative;
+  overflow: visible;
+  border: 1.5px solid transparent;
+  border-radius: 3px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+  /* grid-column set inline via JS */
+}
+
+/* Hover: light border hugs the content */
+.gd-widget:hover {
+  border-color: rgba(0,0,0,0.10);
+}
+.gd-widget.gd-selected {
+  border-color: rgba(74,144,217,0.5);
+  box-shadow: 0 0 0 1.5px rgba(74,144,217,0.15);
+}
+.gd-widget.gd-editing {
+  border-color: rgba(74,144,217,0.35);
+  box-shadow: none;
+}
+
+/* ── Drag handle ─────────────────────────────────────────────── */
+
+.gd-drag-handle {
+  position: absolute;
+  left: -24px; top: 4px;
+  width: 16px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s;
+  color: rgba(0,0,0,0.25);
+  user-select: none;
+  z-index: 5;
+}
+.gd-drag-handle:active { cursor: grabbing; }
+.gd-widget:hover > .gd-drag-handle,
+.gd-widget.gd-selected > .gd-drag-handle {
+  opacity: 1;
+}
+.gd-drag-handle svg { pointer-events: none; }
+
+/* Drop indicator line */
+.gd-drop-line {
+  position: absolute;
+  left: 40px; right: 40px;
+  height: 3px;
+  background: rgba(74,144,217,0.6);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 10;
+  transition: top 0.08s ease;
+}
+
+/* Flow-row being dragged */
+.gd-flow-row.gd-dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ── Title widget ─────────────────────────────────────────────── */
+
+.gd-wt-title {
+  display: block;
+  padding: 2px 6px;
+  cursor: text;
+}
+.gd-title-text {
+  font-size: 26px; font-weight: 700;
+  color: #1a1a1a; line-height: 1.25;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.gd-title-text:empty::before {
+  content: attr(data-placeholder);
+  color: #c0c0c0; pointer-events: none;
+  font-weight: 400;
+}
+
+/* ── Textbox widget ───────────────────────────────────────────── */
+
+.gd-wt-textbox {
+  display: block;
+  padding: 2px 6px;
+  overflow-y: auto;
+  cursor: text;
+}
+.gd-text-content {
+  font-size: 14px; line-height: 1.65;
+  color: #333; outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.gd-text-content:empty::before {
+  content: attr(data-placeholder);
+  color: #c0c0c0; pointer-events: none;
+  font-style: italic;
+}
+
+/* Caret color when editing */
+.gd-widget.gd-editing .gd-title-text,
+.gd-widget.gd-editing .gd-text-content {
+  caret-color: #1a73e8;
+}
+
+/* ── Image widget ─────────────────────────────────────────────── */
+
+.gd-wt-image { padding: 0; }
+.gd-img {
+  width: 100%;
+  height: auto;
+  min-height: 80px;
+  display: block; border-radius: 2px;
+  object-fit: cover;
+}
+.gd-img-placeholder {
+  width: 100%;
+  min-height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  background: #f5f5f5; color: #999;
+  font-size: 13px; font-style: italic;
+  border-radius: 2px;
+}
+
+/* ── Table widget ─────────────────────────────────────────────── */
+
+.gd-wt-table { padding: 4px; overflow: auto; }
+.gd-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; color: #333;
+}
+.gd-table th, .gd-table td {
+  border: 1px solid #d0d0d0;
+  padding: 6px 10px; text-align: left;
+  vertical-align: top;
+}
+.gd-table th {
+  background: #f5f5f5; font-weight: 600;
+}
+.gd-table th, .gd-table td {
+  outline: none; cursor: text;
+  min-width: 40px;
+}
+.gd-table th:focus, .gd-table td:focus {
+  background: rgba(74,144,217,0.06);
+  box-shadow: inset 0 0 0 1.5px rgba(74,144,217,0.4);
+}
+
+/* ── Divider widget ───────────────────────────────────────────── */
+
+.gd-wt-divider {
+  display: flex; align-items: center; padding: 0 8px;
+}
+.gd-divider {
+  width: 100%; border: none;
+  border-top: 1px solid #e0e0e0;
+}
+
+/* ── Spacer widget ────────────────────────────────────────────── */
+
+.gd-wt-spacer {
+  background: transparent !important;
+  border: 1.5px dashed rgba(0,0,0,0.08) !important;
+}
+.gd-wt-spacer:hover {
+  border-color: rgba(74,144,217,0.2) !important;
+}
+
+/* ── Chart placeholder ────────────────────────────────────────── */
+
+.gd-chart-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: #fafafa; color: #888;
+  font-size: 13px; border-radius: 2px;
+}
+
+/* ── Unknown widget ───────────────────────────────────────────── */
+
+.gd-unknown {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: #aaa; font-size: 12px; font-style: italic;
+}
+
+/* ── Loading / error ──────────────────────────────────────────── */
+
+.gd-loading, .gd-error {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; font-size: 14px;
+}
+.gd-loading { color: #909090; }
+.gd-error   { color: #ef4444; }
+
+/* ── Sidebar flow list ────────────────────────────────────────── */
+
+.gd-flow-list {
+  flex: 1; overflow-y: auto;
+  padding: 0 4px 8px;
+}
+.gd-flow-list::-webkit-scrollbar { width: 4px; }
+.gd-flow-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.gd-flow-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; margin: 2px 0;
+  border-radius: 5px; cursor: pointer;
+  font-size: 11px; color: var(--text-sec, #909090);
+  transition: background 0.12s;
+}
+.gd-flow-item:hover { background: rgba(255,255,255,0.05); }
+.gd-flow-item.gd-flow-active {
+  background: rgba(74,144,217,0.12);
+  color: var(--text, #E0E0E0);
+}
+
+.gd-flow-type {
+  font-weight: 600;
+  min-width: 50px;
+  color: var(--text-sec, #909090);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gd-flow-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gd-flow-meta {
+  font-size: 9px;
+  color: var(--text-muted, #5a5a5a);
+  flex-shrink: 0;
+}
+
+/* ── Print styles ─────────────────────────────────────────────── */
+
+@media print {
+  .gd-center { padding: 0; background: #fff; gap: 0; }
+  .gd-page   { box-shadow: none; border-radius: 0; padding: 48px; }
+  .gd-widget { border-color: transparent !important; box-shadow: none !important; }
+  .gd-drag-handle { display: none !important; }
+  .gd-wt-spacer { border-color: transparent !important; }
+}

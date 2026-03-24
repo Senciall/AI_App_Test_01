@@ -1,143 +1,77 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron');
-const path = require('path');
-const { ensureOllama, stopOllama, ensureModel } = require('./ollama-manager');
-const { startServer } = require('./server');
+const { app, BrowserWindow } = require('electron');
+const { spawn } = require('child_process');
+const http = require('http');
 
-const PORT = 3000;
-let mainWindow = null;
-let tray = null;
-let expressServer = null;
+let win = null;
+let expressPort = 3000;
+let ollamaProcess = null;
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-    app.quit();
-} else {
-    app.on('second-instance', () => {
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-        }
-    });
+function createWindow(port) {
+  expressPort = port;
+  win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 600,
+    backgroundColor: '#1a1a1a',
+    title: 'MyAI',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webviewTag: true,
+    },
+  });
+
+  win.loadURL(`http://localhost:${port}`);
+  win.on('closed', () => { win = null; });
 }
 
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 1280,
-        height: 850,
-        minWidth: 800,
-        minHeight: 600,
-        title: 'ChatGPT 2.0',
-        backgroundColor: '#0a0a0c',
-        show: false,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-        },
-    });
-
-    mainWindow.setMenuBarVisibility(false);
-
-    mainWindow.loadFile(path.join(__dirname, 'public', 'loading.html'));
-    mainWindow.once('ready-to-show', () => mainWindow.show());
-
-    mainWindow.on('close', (e) => {
-        if (tray) {
-            e.preventDefault();
-            mainWindow.hide();
-        }
-    });
-
-    mainWindow.on('closed', () => { mainWindow = null; });
+function isOllamaRunning() {
+  return new Promise(resolve => {
+    http.get('http://127.0.0.1:11434', res => {
+      res.resume();
+      resolve(true);
+    }).on('error', () => resolve(false));
+  });
 }
 
-function createTray() {
-    const iconSize = 16;
-    const icon = nativeImage.createEmpty();
+async function ensureOllama() {
+  if (await isOllamaRunning()) return;
 
-    tray = new Tray(icon);
-    tray.setToolTip('ChatGPT 2.0');
-    tray.setContextMenu(Menu.buildFromTemplate([
-        {
-            label: 'Show',
-            click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } },
-        },
-        { type: 'separator' },
-        {
-            label: 'Quit',
-            click: () => {
-                tray.destroy();
-                tray = null;
-                app.quit();
-            },
-        },
-    ]));
+  ollamaProcess = spawn('ollama', ['serve'], {
+    detached: false,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
 
-    tray.on('double-click', () => {
-        if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-    });
+  ollamaProcess.on('error', (err) => {
+    console.warn('Failed to start ollama:', err.message);
+    ollamaProcess = null;
+  });
+
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    if (await isOllamaRunning()) return;
+  }
+  console.warn('Ollama did not become ready within 10 seconds');
 }
 
-function sendStatus(stage, progress) {
-    if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.send('setup-status', { stage, progress });
-    }
-}
+app.whenReady().then(async () => {
+  await ensureOllama();
+  const { startServer, PORT } = require('./server');
+  startServer(PORT, (port) => createWindow(port));
+});
 
-async function bootstrap() {
-    createWindow();
-    createTray();
-
-    try {
-        sendStatus('checking', 0);
-
-        await ensureOllama((stage, progress) => {
-            sendStatus(stage, progress);
-        });
-
-        await ensureModel('gemma3:latest', (stage, progress) => {
-            sendStatus(stage, progress);
-        });
-
-        await ensureModel('exaone-deep:2.4b', (stage, progress) => {
-            sendStatus(stage, progress);
-        });
-
-        const result = await startServer(PORT);
-        expressServer = result.server;
-        const actualPort = result.port;
-
-        sendStatus('ready', 100);
-        await new Promise((r) => setTimeout(r, 600));
-
-        if (mainWindow) {
-            mainWindow.loadURL(`http://localhost:${actualPort}`);
-        }
-    } catch (err) {
-        console.error('Bootstrap failed:', err);
-        sendStatus('error', err.message);
-    }
-}
-
-app.whenReady().then(bootstrap);
+app.on('will-quit', () => {
+  if (ollamaProcess && !ollamaProcess.killed) {
+    ollamaProcess.kill();
+  }
+});
 
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', () => {
-    if (mainWindow === null) createWindow();
-});
-
-app.on('before-quit', () => {
-    stopOllama();
-    if (expressServer) {
-        expressServer.close();
-    }
-    if (tray) {
-        tray.destroy();
-        tray = null;
-    }
+  if (!win) createWindow(expressPort);
 });

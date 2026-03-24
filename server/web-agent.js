@@ -1,62 +1,35 @@
 /* ═══════════════════════════════════════════════════════════
-   Web Agent — search, scrape, and streaming two-pass orchestrator
-   Self-contained module: no npm dependencies beyond Node built-ins
+   Web Agent — search, scrape, streaming orchestrator + places
+   No npm deps — pure Node built-ins
    ═══════════════════════════════════════════════════════════ */
 
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { ollamaChat } = require('./ollama');
-const { loadData } = require('./data');
 
-// ── JSON fetch helper ───────────────────────────────────────
-function fetchJSON(targetUrl) {
-  return new Promise((resolve, reject) => {
-    const client = targetUrl.startsWith('https') ? https : http;
-    client.get(targetUrl, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000,
-    }, (res) => {
-      if ([301, 302, 303, 307].includes(res.statusCode) && res.headers.location) {
-        res.resume();
-        return fetchJSON(res.headers.location).then(resolve).catch(reject);
-      }
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch { reject(new Error('Invalid JSON')); }
-      });
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-}
+const PLACE_TYPES = ['LocalBusiness','Restaurant','Cafe','Hotel','Store','Food','Bar','Bakery',
+  'FastFoodRestaurant','LodgingBusiness','Place','Museum','Park','TouristAttraction',
+  'Hospital','Pharmacy','Library','ArtGallery','MovieTheater','ShoppingCenter',
+  'FoodEstablishment','Accommodation','SportsActivityLocation','EntertainmentBusiness'];
 
-// ── Google Places API helpers ───────────────────────────────
-async function googleTextSearch(query, apiKey) {
-  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${apiKey}`;
-  const data = await fetchJSON(url);
-  if (data.status !== 'OK' || !data.results || !data.results.length) return null;
-  return data.results[0];
-}
+const PLACE_SITES = ['yelp.com','tripadvisor.com','foursquare.com','zomato.com',
+  'opentable.com','happycow.net','booking.com','restaurants.com'];
 
-async function googlePlaceDetails(placeId, apiKey) {
-  const fields = 'name,formatted_address,geometry,rating,user_ratings_total,reviews,photos,opening_hours,price_level,types';
-  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${apiKey}`;
-  const data = await fetchJSON(url);
-  if (data.status !== 'OK' || !data.result) return null;
-  return data.result;
-}
+// Nitter instances (public Twitter mirrors that serve real HTML)
+const NITTER_INSTANCES = [
+  'nitter.privacydev.net',
+  'nitter.poast.org',
+  'nitter.1d4.us',
+  'nitter.cz',
+];
 
-function googlePhotoUrl(photoRef, apiKey, maxWidth = 400) {
-  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${photoRef}&key=${apiKey}`;
-}
+// Twitter/X domains
+const TWITTER_HOSTS = new Set(['twitter.com','x.com','www.twitter.com','www.x.com']);
 
 // ── Fetch helper with redirect following ────────────────────
 function fetchPage(targetUrl, depth = 0) {
   return new Promise((resolve, reject) => {
     if (depth > 3) return reject(new Error('Too many redirects'));
-
     let parsedUrl;
     try { parsedUrl = new URL(targetUrl); }
     catch { return reject(new Error('Invalid URL')); }
@@ -64,7 +37,7 @@ function fetchPage(targetUrl, depth = 0) {
     const client = parsedUrl.protocol === 'https:' ? https : http;
     const req = client.get(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       }
@@ -74,16 +47,13 @@ function fetchPage(targetUrl, depth = 0) {
         res.resume();
         return fetchPage(next, depth + 1).then(resolve).catch(reject);
       }
-
       if (res.statusCode !== 200) {
         res.resume();
         return reject(new Error(`HTTP ${res.statusCode}`));
       }
-
       let data = '';
       let size = 0;
-      const MAX = 500 * 1024;
-
+      const MAX = 600 * 1024;
       res.on('data', chunk => {
         size += chunk.length;
         if (size > MAX) { res.destroy(); return; }
@@ -92,9 +62,8 @@ function fetchPage(targetUrl, depth = 0) {
       res.on('end', () => resolve(data));
       res.on('error', reject);
     });
-
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.setTimeout(12000, () => { req.destroy(); reject(new Error('Timeout')); });
   });
 }
 
@@ -109,30 +78,19 @@ async function searchDDG(query, max = 6) {
 
   for (const block of blocks) {
     if (results.length >= max) break;
-
     const hrefMatch = block.match(/class="result__a"[^>]*href="([^"]+)"/);
     if (!hrefMatch) continue;
-
     let link = hrefMatch[1];
     const uddgMatch = link.match(/uddg=([^&]+)/);
     if (uddgMatch) link = decodeURIComponent(uddgMatch[1]);
     if (link.includes('duckduckgo.com')) continue;
 
     const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
-    const title = titleMatch
-      ? titleMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-      : '';
-
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
     const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:td|div|span)>/);
-    const snippet = snippetMatch
-      ? snippetMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-      : '';
-
-    if (title || snippet) {
-      results.push({ url: link, title, snippet });
-    }
+    const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
+    if (title || snippet) results.push({ url: link, title, snippet });
   }
-
   return results;
 }
 
@@ -166,13 +124,9 @@ async function scrapePage(targetUrl) {
   while ((imgMatch = imgRegex.exec(clean)) !== null && images.length < 20) {
     let src = imgMatch[1];
     const alt = imgMatch[2] || '';
-
     if (src.includes('data:') || src.includes('1x1') || src.includes('pixel')
       || src.includes('tracking') || src.includes('.svg') || src.length < 10) continue;
-
-    try { src = new URL(src, targetUrl).href; }
-    catch { continue; }
-
+    try { src = new URL(src, targetUrl).href; } catch { continue; }
     if (!src.startsWith('http')) continue;
     images.push({ src, alt });
   }
@@ -180,189 +134,318 @@ async function scrapePage(targetUrl) {
   if (ogImage) {
     try {
       const resolved = new URL(ogImage, targetUrl).href;
-      if (!images.some(i => i.src === resolved)) {
-        images.unshift({ src: resolved, alt: title });
-      }
+      if (!images.some(i => i.src === resolved)) images.unshift({ src: resolved, alt: title });
     } catch {}
   }
 
   let text = clean
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
   if (text.length > 15000) text = text.substring(0, 15000) + '...';
 
   return { title, description, content: text, images, url: targetUrl };
 }
 
-// ── Extract ld+json structured data from raw HTML ───────────
-function extractStructuredData(html, pageUrl) {
-  const results = [];
-  const ldRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let match;
+// ── Nitter: convert Twitter/X URL to Nitter ─────────────────
+function toNitterUrl(url, instanceIndex = 0) {
+  try {
+    const u = new URL(url);
+    if (TWITTER_HOSTS.has(u.hostname)) {
+      const instance = NITTER_INSTANCES[instanceIndex % NITTER_INSTANCES.length];
+      return `https://${instance}${u.pathname}${u.search}`;
+    }
+  } catch {}
+  return null;
+}
 
-  while ((match = ldRegex.exec(html)) !== null) {
+// Parse tweets from Nitter HTML
+function parseNitterHtml(html, sourceUrl) {
+  const tweets = [];
+  // Split on timeline items
+  const blocks = html.split(/class="timeline-item/).slice(1);
+  for (const block of blocks.slice(0, 25)) {
+    // Extract tweet text
+    const contentM = block.match(/class="tweet-content[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+    const text = contentM
+      ? contentM[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      : '';
+    if (!text || text.length < 3) continue;
+
+    // Date
+    const dateM = block.match(/title="([^"]+\d{4}[^"]*)"[^>]*>\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d)/);
+    const date = dateM ? dateM[1] : '';
+
+    // Stats
+    const rtM = block.match(/([\d,]+)\s*(?:Retweet|retweet|RT)/);
+    const likeM = block.match(/([\d,]+)\s*(?:Like|like|Heart|heart)/);
+
+    // Images inside tweet
+    const imgMatches = [...block.matchAll(/src="([^"]+\/(?:pic|media|orig)[^"]+)"/g)];
+    const images = imgMatches.slice(0, 3).map(m => {
+      try { return { src: new URL(m[1], `https://${NITTER_INSTANCES[0]}`).href, alt: '' }; }
+      catch { return null; }
+    }).filter(Boolean);
+
+    tweets.push({ text, date, retweets: rtM?.[1] || '0', likes: likeM?.[1] || '0', images });
+  }
+  return tweets;
+}
+
+// ── Reddit: scrape via public JSON API ───────────────────────
+function parseRedditJson(jsonStr, sourceUrl) {
+  try {
+    const data = JSON.parse(jsonStr);
+    // Handles both /r/sub.json and /r/sub/comments/id.json
+    const listing = Array.isArray(data) ? data[0] : data;
+    const children = listing?.data?.children || [];
+    return children.slice(0, 15).map(c => {
+      const d = c.data;
+      return {
+        title: d.title || '',
+        url: d.url || sourceUrl,
+        text: (d.selftext || '').slice(0, 400),
+        author: d.author || '',
+        score: d.score || 0,
+        comments: d.num_comments || 0,
+        subreddit: d.subreddit || '',
+        created: d.created_utc ? new Date(d.created_utc * 1000).toISOString().slice(0, 10) : '',
+      };
+    }).filter(p => p.title || p.text);
+  } catch { return []; }
+}
+
+// ── RSS / Atom: parse feed XML ───────────────────────────────
+function parseRSSFeed(xml) {
+  const items = [];
+  const rssBlocks = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+  const atomBlocks = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+  for (const block of [...rssBlocks, ...atomBlocks].slice(0, 20)) {
+    const getVal = (tag) => {
+      const m = block.match(new RegExp(
+        `<${tag}[^>]*>\\s*(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?\\s*<\\/${tag}>`, 'i'
+      ));
+      return m ? m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+    };
+    const title = getVal('title');
+    const link = block.match(/<link[^>]+href=["']([^"']+)["']/i)?.[1] || getVal('link') || '';
+    const desc = getVal('description') || getVal('summary') || getVal('content');
+    const date = getVal('pubDate') || getVal('published') || getVal('updated');
+    if (title || desc) items.push({ title, url: link, snippet: desc.slice(0, 350), date });
+  }
+  return items;
+}
+
+// Find RSS/Atom <link> in page <head>
+function findFeedUrl(html, pageUrl) {
+  const m = html.match(/<link[^>]+type=["']application\/(rss|atom)\+xml["'][^>]*href=["']([^"']+)["']/i)
+           || html.match(/<link[^>]+href=["']([^"']+)["'][^>]*type=["']application\/(rss|atom)\+xml["']/i);
+  if (!m) return null;
+  const href = (m[2] || m[1] || '').trim();
+  if (!href) return null;
+  try { return new URL(href, pageUrl).href; } catch { return null; }
+}
+
+// ── Smart scraper — picks the best strategy per URL ──────────
+async function scrapeSmart(targetUrl) {
+  // ── Twitter / X → Nitter ──
+  const nitterUrl = toNitterUrl(targetUrl);
+  if (nitterUrl) {
+    let lastErr;
+    for (let i = 0; i < NITTER_INSTANCES.length; i++) {
+      const url = toNitterUrl(targetUrl, i);
+      try {
+        const html = await fetchPage(url);
+        const tweets = parseNitterHtml(html, url);
+        if (tweets.length === 0) continue;
+
+        const titleM = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const allImages = tweets.flatMap(t => t.images);
+        const content = tweets
+          .map(t => `${t.date ? `[${t.date}] ` : ''}${t.text}  ♥ ${t.likes}  ↺ ${t.retweets}`)
+          .join('\n\n');
+
+        return {
+          title: titleM ? titleM[1].replace(/\s+/g, ' ').trim() : 'Twitter/X',
+          description: `${tweets.length} tweets`,
+          content,
+          images: allImages.slice(0, 12),
+          url: targetUrl,
+          source: 'twitter',
+          liveItems: tweets,
+        };
+      } catch (err) { lastErr = err; }
+    }
+    console.error('All Nitter instances failed:', lastErr?.message);
+    // Fall through to plain scrape
+  }
+
+  // ── Reddit → .json API ──
+  if (/(?:^|\.)reddit\.com/.test(new URL(targetUrl).hostname)) {
     try {
-      let parsed = JSON.parse(match[1]);
-      // Handle arrays (some sites wrap in array)
-      if (Array.isArray(parsed)) parsed = parsed[0];
-      // Handle @graph
-      if (parsed['@graph']) {
-        for (const item of parsed['@graph']) results.push(item);
-      } else {
-        results.push(parsed);
+      const jsonUrl = targetUrl.replace(/\/$/, '').replace(/\?.*/, '') + '.json?limit=15';
+      const jsonStr = await fetchPage(jsonUrl);
+      const posts = parseRedditJson(jsonStr, targetUrl);
+      if (posts.length > 0) {
+        const content = posts
+          .map(p => `**${p.title}**${p.created ? ` (${p.created})` : ''}\n${p.text || p.url}\n↑ ${p.score}  💬 ${p.comments}`)
+          .join('\n\n');
+        return {
+          title: `Reddit — ${posts[0]?.subreddit || ''}`,
+          description: `${posts.length} posts`,
+          content,
+          images: [],
+          url: targetUrl,
+          source: 'reddit',
+          liveItems: posts,
+        };
       }
     } catch {}
   }
 
-  // Filter for place-like schemas
-  const placeTypes = ['LocalBusiness', 'Restaurant', 'FoodEstablishment', 'CafeOrCoffeeShop',
-    'BarOrPub', 'Store', 'Hotel', 'TouristAttraction', 'LodgingBusiness', 'Place',
-    'SportsActivityLocation', 'EntertainmentBusiness', 'HealthAndBeautyBusiness'];
-
-  const places = [];
-  for (const item of results) {
-    const type = item['@type'];
-    const types = Array.isArray(type) ? type : [type];
-    if (!types.some(t => placeTypes.includes(t))) continue;
-
-    const addr = item.address || {};
-    const geo = item.geo || {};
-    const rating = item.aggregateRating || {};
-    const name = item.name || '';
-    if (!name) continue;
-
-    // Extract images
-    const imgs = [];
-    if (item.image) {
-      const imgList = Array.isArray(item.image) ? item.image : [item.image];
-      for (const img of imgList) {
-        const src = typeof img === 'string' ? img : img?.url;
-        if (src && src.startsWith('http')) imgs.push({ src, alt: name });
-      }
+  // ── Any site: try auto-detecting RSS/Atom feed ──
+  try {
+    const html = await fetchPage(targetUrl);
+    const feedUrl = findFeedUrl(html, targetUrl);
+    if (feedUrl) {
+      try {
+        const feedXml = await fetchPage(feedUrl);
+        const feedItems = parseRSSFeed(feedXml);
+        if (feedItems.length > 0) {
+          const titleM = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const content = feedItems
+            .map(i => `**${i.title}**${i.date ? ` (${i.date})` : ''}\n${i.snippet}`)
+            .join('\n\n');
+          return {
+            title: titleM ? titleM[1].replace(/\s+/g, ' ').trim() : feedUrl,
+            description: `${feedItems.length} feed items`,
+            content,
+            images: [],
+            url: targetUrl,
+            source: 'rss',
+            liveItems: feedItems,
+          };
+        }
+      } catch {}
     }
+    // Fall back to standard HTML scrape
+    return { ...(await scrapePage(targetUrl)), source: 'html' };
+  } catch (err) {
+    // Last resort: straight scrape
+    return { ...(await scrapePage(targetUrl)), source: 'html' };
+  }
+}
 
-    // Extract reviews
-    const revs = [];
-    if (item.review) {
-      const revList = Array.isArray(item.review) ? item.review : [item.review];
-      for (const rv of revList.slice(0, 5)) {
-        revs.push({
-          text: (rv.reviewBody || rv.description || '').substring(0, 250),
-          author: rv.author?.name || rv.author || 'Anonymous',
-          rating: rv.reviewRating?.ratingValue || 0,
-          time: rv.datePublished || '',
-          source: 'Review',
+// ── Extract ld+json structured place data ───────────────────
+function extractStructuredData(html, pageUrl) {
+  const places = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      const raw = JSON.parse(m[1]);
+      const items = Array.isArray(raw) ? raw : (raw['@graph'] ? raw['@graph'] : [raw]);
+      for (const item of items) {
+        if (!item || !item['@type']) continue;
+        const type = Array.isArray(item['@type']) ? item['@type'].join(',') : String(item['@type']);
+        if (!PLACE_TYPES.some(t => type.includes(t))) continue;
+        if (!item.name) continue;
+
+        const lat = item.geo?.latitude ?? item.geo?.lat ?? null;
+        const lng = item.geo?.longitude ?? item.geo?.lng ?? null;
+
+        const imgs = [];
+        if (item.image) {
+          const arr = Array.isArray(item.image) ? item.image : [item.image];
+          for (const img of arr.slice(0, 8)) {
+            if (typeof img === 'string' && img.startsWith('http')) imgs.push({ src: img, alt: item.name });
+            else if (img?.url?.startsWith('http')) imgs.push({ src: img.url, alt: img.name || item.name });
+          }
+        }
+
+        const reviews = [];
+        if (item.review) {
+          const revArr = Array.isArray(item.review) ? item.review : [item.review];
+          for (const r of revArr.slice(0, 3)) {
+            const txt = r.reviewBody || r.description || '';
+            if (!txt) continue;
+            reviews.push({
+              author: r.author?.name || 'Anonymous',
+              rating: r.reviewRating?.ratingValue ? parseFloat(r.reviewRating.ratingValue) : null,
+              text: txt.slice(0, 300)
+            });
+          }
+        }
+
+        let address = '';
+        if (item.address) {
+          if (typeof item.address === 'string') {
+            address = item.address;
+          } else {
+            address = [item.address.streetAddress, item.address.addressLocality, item.address.addressRegion]
+              .filter(Boolean).join(', ');
+          }
+        }
+
+        places.push({
+          name: item.name,
+          type,
+          address,
+          phone: item.telephone || '',
+          website: item.url || pageUrl,
+          rating: item.aggregateRating?.ratingValue ? parseFloat(item.aggregateRating.ratingValue) : null,
+          ratingCount: item.aggregateRating?.reviewCount ? parseInt(item.aggregateRating.reviewCount) : null,
+          lat: lat !== null ? parseFloat(lat) : null,
+          lng: lng !== null ? parseFloat(lng) : null,
+          images: imgs,
+          reviews,
+          priceRange: item.priceRange || null,
           url: pageUrl
         });
       }
-    }
+    } catch {}
+  }
+  return places;
+}
 
-    places.push({
-      name,
-      address: [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode]
-        .filter(Boolean).join(', ') || item.address || '',
-      lat: geo.latitude ? parseFloat(geo.latitude) : null,
-      lng: geo.longitude ? parseFloat(geo.longitude) : null,
-      rating: rating.ratingValue ? parseFloat(rating.ratingValue) : null,
-      totalRatings: rating.reviewCount ? parseInt(rating.reviewCount) : 0,
-      priceRange: item.priceRange || null,
-      phone: item.telephone || null,
-      images: imgs.slice(0, 6),
-      reviews: revs,
-      url: pageUrl,
-      types: types
-    });
+// ── Search for real places via DDG → ld+json scraping ───────
+async function searchPlaces(query, location = '', max = 6) {
+  const q = location ? `${query} near ${location}` : query;
+  let ddgResults;
+  try { ddgResults = await searchDDG(q, 14); } catch { return []; }
+
+  // Prioritise review sites that have ld+json
+  ddgResults.sort((a, b) => {
+    const aP = PLACE_SITES.some(s => a.url.includes(s)) ? 0 : 1;
+    const bP = PLACE_SITES.some(s => b.url.includes(s)) ? 0 : 1;
+    return aP - bP;
+  });
+
+  const places = [];
+  const seen = new Set();
+
+  for (const r of ddgResults) {
+    if (places.length >= max) break;
+    if (seen.has(r.url)) continue;
+    seen.add(r.url);
+
+    try {
+      const html = await fetchPage(r.url);
+      const structured = extractStructuredData(html, r.url);
+      for (const place of structured) {
+        if (places.some(p => p.name.toLowerCase() === place.name.toLowerCase())) continue;
+        places.push(place);
+        if (places.length >= max) break;
+      }
+    } catch { /* skip */ }
   }
 
   return places;
 }
 
-// ── Search for places via DDG → scrape structured data ──────
-async function searchPlaces(query, location, max = 6) {
-  const searchQ = location ? `${query} near ${location}` : query;
-  const allPlaces = [];
-  const seenNames = new Set();
-
-  // Search DDG for the query — results will include Yelp, TripAdvisor, etc.
-  const ddgResults = await searchDDG(searchQ, 10);
-
-  // Prioritize review sites that have structured data
-  const prioritySites = ['yelp.com', 'tripadvisor.com', 'foursquare.com', 'zomato.com', 'opentable.com'];
-  const sorted = [...ddgResults].sort((a, b) => {
-    const aP = prioritySites.some(s => a.url.includes(s)) ? 0 : 1;
-    const bP = prioritySites.some(s => b.url.includes(s)) ? 0 : 1;
-    return aP - bP;
-  });
-
-  // Scrape top results for ld+json place data
-  for (const result of sorted.slice(0, 5)) {
-    if (allPlaces.length >= max) break;
-
-    try {
-      const html = await fetchPage(result.url);
-      const places = extractStructuredData(html, result.url);
-
-      for (const place of places) {
-        if (seenNames.has(place.name.toLowerCase())) continue;
-        seenNames.add(place.name.toLowerCase());
-
-        // If no images from ld+json, grab from page scrape
-        if (place.images.length === 0) {
-          try {
-            const scraped = await scrapePage(result.url);
-            place.images = scraped.images.slice(0, 4);
-          } catch {}
-        }
-
-        allPlaces.push(place);
-        if (allPlaces.length >= max) break;
-      }
-    } catch {}
-  }
-
-  // If we didn't get enough from structured data, supplement with DDG snippets
-  if (allPlaces.length < 2) {
-    for (const r of ddgResults) {
-      if (allPlaces.length >= max) break;
-      // Check if the title looks like a place name (not a list article)
-      if (r.title && !r.title.toLowerCase().includes('best ') && !r.title.toLowerCase().includes(' top ')) {
-        const name = r.title.split(' - ')[0].split(' | ')[0].trim();
-        if (name.length > 2 && name.length < 80 && !seenNames.has(name.toLowerCase())) {
-          seenNames.add(name.toLowerCase());
-          let domain = '';
-          try { domain = new URL(r.url).hostname.replace('www.', ''); } catch {}
-          allPlaces.push({
-            name,
-            address: '',
-            lat: null, lng: null,
-            rating: null, totalRatings: 0,
-            priceRange: null, phone: null,
-            images: [],
-            reviews: r.snippet ? [{
-              text: r.snippet.substring(0, 200),
-              author: domain, rating: 0, source: domain, url: r.url
-            }] : [],
-            url: r.url,
-            types: []
-          });
-        }
-      }
-    }
-  }
-
-  return allPlaces;
-}
-
 // ── Pass 1: Generate search queries via Ollama ──────────────
-async function generateSearchQueries(userQuery, chatHistory, model) {
+async function generateSearchQueries(userQuery, chatHistory, model, ollamaChat) {
   const systemPrompt = `You are a search query generator. Given the user's message and conversation context, generate 1-3 focused web search queries that would find the most relevant and current information. Respond ONLY with a JSON array of strings. If the message is purely conversational and needs no web search, respond with [].
 
 Examples:
@@ -370,10 +453,9 @@ Examples:
 - User asks "Latest Python version" → ["Python latest version 2024", "Python release notes"]
 - User says "Hello how are you?" → []`;
 
-  const recentHistory = chatHistory.slice(-4);
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...recentHistory,
+    ...chatHistory.slice(-4),
     { role: 'user', content: userQuery }
   ];
 
@@ -381,67 +463,65 @@ Examples:
     const result = await ollamaChat(model, messages, { temperature: 0.3, num_ctx: 2048 });
     let text = result.message?.content || '[]';
     text = text.replace(/```json?\s*/gi, '').replace(/```/g, '').trim();
-
     const arrayMatch = text.match(/\[[\s\S]*?\]/);
     if (!arrayMatch) return [userQuery];
-
     const queries = JSON.parse(arrayMatch[0]);
     if (!Array.isArray(queries) || queries.length === 0) return [];
     return queries.slice(0, 3).filter(q => typeof q === 'string' && q.trim());
   } catch (err) {
-    console.error('Query generation failed, using raw query:', err.message);
+    console.error('Query generation failed:', err.message);
     return [userQuery];
   }
 }
 
-// ── Build LLM context string from results ───────────────────
+// ── Build LLM context string ─────────────────────────────────
 function buildContextString(allResults) {
-  let context = '[Web Search Results]\n\n';
+  let ctx = '[Web Search Results]\n\n';
   for (let i = 0; i < allResults.length && i < 6; i++) {
     const r = allResults[i];
-    context += `Source ${i + 1}: ${r.title} (${r.url})\n`;
-    if (r.content) {
-      context += `Content: ${r.content}\n`;
-    } else {
-      context += `Snippet: ${r.snippet}\n`;
-    }
+    ctx += `Source ${i + 1}: ${r.title} (${r.url})\n`;
+    ctx += r.content ? `Content: ${r.content}\n` : `Snippet: ${r.snippet}\n`;
     if (r.images && r.images.length > 0) {
-      context += `Images: ${r.images.slice(0, 3).map(img => `![${img.alt || 'image'}](${img.src})`).join(' ')}\n`;
+      ctx += `Images: ${r.images.slice(0, 3).map(img => `![${img.alt || 'image'}](${img.src})`).join(' ')}\n`;
     }
-    context += '\n';
+    ctx += '\n';
   }
-  context += '[End Web Search Results]';
-  return context;
+  ctx += '[End Web Search Results]';
+  return ctx;
 }
 
-// ── Mount Express routes ────────────────────────────────────
-module.exports = function mountWebAgentRoutes(app) {
+// ── Mount Express routes ─────────────────────────────────────
+module.exports = function mountWebAgentRoutes(app, ollamaChat) {
 
-  // Raw search endpoint
+  // Raw DDG search
   app.post('/api/web/search', async (req, res) => {
     const { query, count } = req.body;
     if (!query) return res.status(400).json({ error: 'Missing query' });
     try {
-      const results = await searchDDG(query, count || 6);
-      res.json({ query, results });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+      res.json({ query, results: await searchDDG(query, count || 6) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  // Raw scrape endpoint
+  // Raw page scrape (smart: Twitter→Nitter, Reddit→JSON, RSS auto-detect)
   app.post('/api/web/scrape', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'Missing url' });
     try {
-      const data = await scrapePage(url);
-      res.json(data);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+      res.json(await scrapeSmart(url));
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  // ── Streaming agent search — sends NDJSON progress events ──
+  // Places search — returns structured place objects with lat/lng/images/reviews
+  app.get('/api/web/search-places', async (req, res) => {
+    const { q, near, max } = req.query;
+    if (!q) return res.status(400).json({ error: 'Missing q' });
+    try {
+      const places = await searchPlaces(q, near || '', parseInt(max) || 6);
+      res.json({ query: q, near: near || '', places });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Streaming agent search — NDJSON progress events
   app.post('/api/web/agent-search', async (req, res) => {
     const { query, chatHistory = [], model = 'gemma3:latest', maxScrape = 3 } = req.body;
     if (!query) return res.status(400).json({ error: 'Missing query' });
@@ -455,10 +535,9 @@ module.exports = function mountWebAgentRoutes(app) {
     }
 
     try {
-      // ── Step 1: Generate search queries ──
       emit({ type: 'status', message: 'Analyzing your question...' });
 
-      const searchQueries = await generateSearchQueries(query, chatHistory, model);
+      const searchQueries = await generateSearchQueries(query, chatHistory, model, ollamaChat);
 
       if (searchQueries.length === 0) {
         emit({ type: 'done', searchQueries: [], webResults: [], contextForLLM: '' });
@@ -467,13 +546,12 @@ module.exports = function mountWebAgentRoutes(app) {
 
       emit({ type: 'queries', queries: searchQueries });
 
-      // ── Step 2: Search each query ──
+      // Search each query
       const allResults = [];
       const seen = new Set();
 
       for (const q of searchQueries) {
         emit({ type: 'searching', query: q });
-
         try {
           const results = await searchDDG(q, 4);
           const newResults = [];
@@ -495,30 +573,28 @@ module.exports = function mountWebAgentRoutes(app) {
         return res.end();
       }
 
-      // ── Step 3: Scrape top results one by one ──
+      // Scrape top results
       const scrapeTargets = allResults.slice(0, maxScrape);
-
       for (const result of scrapeTargets) {
         let domain = '';
         try { domain = new URL(result.url).hostname.replace('www.', ''); } catch {}
-
         emit({ type: 'scraping', url: result.url, title: result.title, domain });
-
         try {
-          const scraped = await scrapePage(result.url);
+          const scraped = await scrapeSmart(result.url);
           result.content = scraped.content.substring(0, 3000);
           result.images = scraped.images.slice(0, 8);
           result.pageTitle = scraped.title || result.title;
           result.description = scraped.description;
-
+          result.source = scraped.source;
+          result.liveItems = scraped.liveItems;
           emit({
             type: 'scraped',
             url: result.url,
             title: result.pageTitle || result.title,
             domain,
-            images: result.images.slice(0, 8),
+            source: scraped.source,
+            images: result.images.slice(0, 4),
             snippet: result.description || result.snippet,
-            fullContent: result.content.substring(0, 800),
             charCount: result.content.length
           });
         } catch (err) {
@@ -526,11 +602,9 @@ module.exports = function mountWebAgentRoutes(app) {
         }
       }
 
-      // ── Step 4: Build final context and send done ──
       emit({ type: 'status', message: 'Compiling results...' });
 
       const contextForLLM = buildContextString(allResults);
-
       emit({
         type: 'done',
         searchQueries,
@@ -545,184 +619,22 @@ module.exports = function mountWebAgentRoutes(app) {
     res.end();
   });
 
-  // Search for places — DDG → scrape structured data from Yelp/TripAdvisor/etc.
-  app.get('/api/web/search-places', async (req, res) => {
-    const { q, near, max } = req.query;
-    if (!q) return res.status(400).json({ error: 'Missing q' });
-    try {
-      const places = await searchPlaces(q, near || '', parseInt(max) || 6);
-      res.json({ query: q, places });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Place details — Google Places API (if key set) or DDG→ld+json scraper
-  app.get('/api/web/place-details', async (req, res) => {
-    const { q } = req.query;
-    if (!q) return res.status(400).json({ error: 'Missing q' });
-
-    try {
-      const data = await loadData();
-      const apiKey = data.settings?.googleMapsKey;
-
-      // ── Google Places API path ──
-      if (apiKey) {
-        try {
-          const searchResult = await googleTextSearch(q, apiKey);
-          if (searchResult) {
-            const details = await googlePlaceDetails(searchResult.place_id, apiKey);
-            if (details) {
-              const photos = (details.photos || []).slice(0, 10).map(p => ({
-                src: `/api/web/place-photo?ref=${encodeURIComponent(p.photo_reference)}&maxw=600`,
-                alt: (p.html_attributions?.[0] || '').replace(/<[^>]+>/g, '') || details.name
-              }));
-
-              const reviews = (details.reviews || []).slice(0, 5).map(rv => ({
-                text: rv.text?.substring(0, 250) || '',
-                author: rv.author_name || 'Anonymous',
-                rating: rv.rating || 0,
-                time: rv.relative_time_description || '',
-                source: 'Google',
-                url: rv.author_url || ''
-              }));
-
-              const loc = details.geometry?.location || {};
-
-              return res.json({
-                query: q,
-                source: 'google',
-                name: details.name,
-                address: details.formatted_address,
-                lat: loc.lat,
-                lng: loc.lng,
-                rating: details.rating || null,
-                totalRatings: details.user_ratings_total || 0,
-                priceLevel: details.price_level ?? null,
-                images: photos,
-                reviews,
-                types: (details.types || []).slice(0, 4),
-                openNow: details.opening_hours?.open_now ?? null
-              });
-            }
-          }
-        } catch (err) {
-          console.error('Google Places API failed, falling back to scraper:', err.message);
-        }
-      }
-
-      // ── Scraper fallback: DDG → Yelp/TripAdvisor ld+json ──
-      const places = await searchPlaces(q, '', 1);
-      if (places.length > 0) {
-        const p = places[0];
-        return res.json({
-          query: q,
-          source: 'scrape',
-          name: p.name,
-          address: p.address,
-          lat: p.lat,
-          lng: p.lng,
-          rating: p.rating,
-          totalRatings: p.totalRatings,
-          priceRange: p.priceRange,
-          images: p.images.slice(0, 8),
-          reviews: p.reviews.slice(0, 3)
-        });
-      }
-
-      // Final fallback: basic DDG scrape for images/snippets
-      const images = [];
-      const reviews = [];
-      const searchResults = await searchDDG(`${q} reviews`, 4);
-
-      for (const result of searchResults.slice(0, 2)) {
-        try {
-          const scraped = await scrapePage(result.url);
-          for (const img of scraped.images.slice(0, 4)) {
-            if (!images.some(i => i.src === img.src)) images.push(img);
-          }
-        } catch {}
-      }
-      for (const r of searchResults.slice(0, 3)) {
-        if (r.snippet && r.snippet.length > 30) {
-          let domain = '';
-          try { domain = new URL(r.url).hostname.replace('www.', ''); } catch {}
-          reviews.push({
-            text: r.snippet.substring(0, 200),
-            author: domain, rating: 0, source: domain, url: r.url
-          });
-        }
-      }
-
-      res.json({
-        query: q,
-        source: 'scrape',
-        images: images.slice(0, 6),
-        reviews: reviews.slice(0, 3)
-      });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Google Place Photo proxy (avoids exposing API key to client)
-  app.get('/api/web/place-photo', async (req, res) => {
-    const { ref, maxw } = req.query;
-    if (!ref) return res.status(400).send('Missing ref');
-    try {
-      const data = await loadData();
-      const apiKey = data.settings?.googleMapsKey;
-      if (!apiKey) return res.status(400).send('No API key');
-
-      const photoUrl = googlePhotoUrl(ref, apiKey, parseInt(maxw) || 400);
-      // Google redirects to the actual image — follow it
-      https.get(photoUrl, (proxyRes) => {
-        if ([301, 302, 303, 307].includes(proxyRes.statusCode) && proxyRes.headers.location) {
-          // Follow redirect to actual image
-          https.get(proxyRes.headers.location, (imgRes) => {
-            res.setHeader('Content-Type', imgRes.headers['content-type'] || 'image/jpeg');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            imgRes.pipe(res);
-          }).on('error', () => res.status(500).send('Photo fetch failed'));
-          proxyRes.resume();
-        } else if (proxyRes.statusCode === 200) {
-          res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          proxyRes.pipe(res);
-        } else {
-          res.status(proxyRes.statusCode).send('Photo unavailable');
-          proxyRes.resume();
-        }
-      }).on('error', () => res.status(500).send('Photo proxy error'));
-    } catch {
-      res.status(500).send('Error');
-    }
-  });
-
-  // Image proxy
+  // Image proxy — avoids CORS/mixed-content issues
   app.get('/api/web/image-proxy', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('Missing url');
-
     try {
       const parsedUrl = new URL(url);
       const client = parsedUrl.protocol === 'https:' ? https : http;
-
-      client.get(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 8000,
-      }, (proxyRes) => {
+      client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 }, (proxyRes) => {
         if (proxyRes.statusCode !== 200) {
           res.status(proxyRes.statusCode).send('Image fetch failed');
           return proxyRes.resume();
         }
-        const contentType = proxyRes.headers['content-type'] || 'image/jpeg';
-        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         proxyRes.pipe(res);
       }).on('error', () => res.status(500).send('Proxy error'));
-    } catch {
-      res.status(400).send('Invalid URL');
-    }
+    } catch { res.status(400).send('Invalid URL'); }
   });
 };
